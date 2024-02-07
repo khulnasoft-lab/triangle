@@ -1,0 +1,208 @@
+p#footer {
+  border-top-style: solid;
+  border-width: 1px;
+  padding-top: 2px;
+  font-size: 75%;
+}
+
+td.error {
+  background-color: #b267fc;
+  text-decoration: underline dotted;
+}
+td.error .error-details {
+  background-color: white;
+  visibility: hidden;
+  position: absolute;
+  padding: .5rem;
+  border: 1px black solid;
+  box-shadow: 0 2px 5px 0 rgba(0, 0, 0, 0.26);
+  width: auto;
+}
+td.error:hover .error-details {
+  z-index: 10;
+  visibility: visible;
+}
+
+table#results thead th,
+table#results thead td,
+table#results tfoot th,
+table#results tfoot td {
+  white-space: nowrap;
+}
+
+table#results td,
+table#results th {
+  padding: .25rem .75rem;
+}
+
+table#results tr .hostname { text-align: right; }
+table#results td.date { white-space: nowrap; }
+table#results td.warning { background-color: #ffffaa; }
+table#results td.tiny { font-size: 50%; }
+table#results td.age0 { background-color: #50f442; } /* green */
+table#results td.age1 { background-color: #89f442; }
+table#results td.age2 { background-color: #bcf442; }
+table#results td.age3 { background-color: #f4f142; } /* yellow */
+table#results td.age4 { background-color: #f4c842; } /* orange */
+table#results td.age5 { background-color: #f48c42; }
+table#results td.age6 { background-color: #f66666; } /* red */
+table#results td.age7 { background-color: #ff4444; } /* red */
+table#results td.age8 { background-color: #ff0000; } /* red */
+table#results td.age9 { background-color: #c00000; }
+table#results td.age10{ background-color: #900000; }
+table#results td.ageunknown{ background-color: #34897c; } /* teal */
+table#results td.traceset { white-space: nowrap; font-size: 75%; line-height: 1.15; }
+table#results td.extrainfo { white-space: nowrap; font-size: 75%; line-height: 1.15; }
+table#results span.aliaserror { font-weight: bold; color: red; }
+table#results span.aliaswarning { font-weight: italic; color: yellow; }
+
+table#hiera {
+  border-collapse: collapse;
+}
+table#hiera td {
+  padding: 4pt;
+  border: 1px black solid;
+  vertical-align: top;
+}
+table#hiera td.trace { font-style: italic; }
+table#hiera span.main { font-style: italic; }
+table#hiera span.tracesetwarning { font-weight: bold; color: red; }
+table#hiera td.error { background-color: #b267fc; }
+table#hiera td.age0 { background-color: #50f442; } /* green */
+table#hiera td.age1 { background-color: #89f442; }
+table#hiera td.age2 { background-color: #bcf442; }
+table#hiera td.age3 { background-color: #f4f142; } /* yellow */
+table#hiera td.age4 { background-color: #f4c842; } /* orange */
+table#hiera td.age5 { background-color: #f48c42; }
+table#hiera td.age6 { background-color: #f66666; } /* red */
+table#hiera td.age7 { background-color: #ff4444; } /* red */
+table#hiera td.age8 { background-color: #ff0000; } /* red */
+table#hiera td.age9 { background-color: #c00000; }
+table#hiera td.age10{ background-color: #900000; }
+table#hiera td.ageunknown{ background-color: #34897c; } /* teal */
+
+.tablesorter-bootstrap {
+	width: 100%;
+}
+
+.tablesorter-bootstrap thead .tablesorter-header {
+	background-position: right 5px center;
+	background-repeat: no-repeat;
+	cursor: pointer;
+	white-space: normal;
+}
+
+.tablesorter-bootstrap thead .sorter-false {
+	cursor: default;
+	background-image: none;
+}
+
+.tablesorter-bootstrap .tablesorter-header-inner {
+	position: relative;
+	padding-right: 1rem;
+}
+.tablesorter-bootstrap .sorter-false .tablesorter-header-inner {
+	padding-right: 0;
+}
+
+/* black icons */
+.tablesorter-bootstrap thead .tablesorter-headerUnSorted:not(.sorter-false) {
+	background-image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE0IDIwIj48cGF0aCBkPSJNMTQgMTNsLTIuNS0yLjVMNyAxNWwtNC41LTQuNUwwIDEzbDcgN3pNMTQgNy41TDExLjUgMTAgNyA1LjUgMi41IDEwIDAgNy41bDctN3oiLz48L3N2Zz4=);
+}
+.tablesorter-bootstrap thead .tablesorter-headerAsc {
+	background-image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDE0IDE0Ij48cGF0aCBkPSJNMTQgOS41TDExLjUgMTIgNyA3LjUgMi41IDEyIDAgOS41bDctN3oiLz48L3N2Zz4=);
+}
+.tablesorter-bootstrap thead .tablesorter-headerDesc {
+	background-image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMiIgaGVpZ2h0PSIxMiIgdmlld0JveD0iMCAwIDE0IDE0Ij48cGF0aCBkPSJNMTQgNWwtMi41LTIuNS00LjUgNC41LTQuNS00LjVMMCA1IDcgMTJ6Ii8+PC9zdmc+);
+}
+
+/* since bootstrap (table-striped) uses nth-child(), we just use this to add a zebra stripe color */
+.tablesorter-bootstrap:not(.table-inverse) > tbody > tr.odd {
+	background-color: #f9f9f9;
+}
+.tablesorter-bootstrap:not(.table-inverse) > tbody > tr.even {
+	background-color: #fff;
+}
+
+/* caption */
+.tablesorter-bootstrap:not(.table-inverse) .caption {
+	background-color: #fff;
+}
+
+/* filter widget */
+.tablesorter-bootstrap:not(.table-inverse) .tablesorter-filter-row {
+	background-color: #eceeef;
+}
+.tablesorter-bootstrap:not(.table-inverse) .tablesorter-filter-row input.tablesorter-filter,
+.tablesorter-bootstrap:not(.table-inverse) .tablesorter-filter-row select.tablesorter-filter {
+	color: #333;
+}
+
+.tablesorter-bootstrap .tablesorter-filter-row .tablesorter-filter.disabled {
+	cursor: not-allowed;
+	box-shadow: 0px 1px 1px rgba(0, 0, 0, 0.075) inset;
+	box-sizing: border-box;
+	transition: height 0.1s ease;
+}
+
+/* hidden filter row */
+.tablesorter-bootstrap .tablesorter-filter-row.hideme td {
+	padding: 2px; /* change this to modify the thickness of the closed border row */
+	margin: 0;
+	line-height: 0;
+}
+.tablesorter-bootstrap .tablesorter-filter-row.hideme * {
+	height: 1px;
+	min-height: 0;
+	border: 0;
+	padding: 0;
+	margin: 0;
+	/* don't use visibility: hidden because it disables tabbing */
+	opacity: 0;
+	filter: alpha(opacity=0);
+}
+/* rows hidden by filtering */
+.tablesorter-bootstrap .filtered {
+	display: none;
+}
+
+.columnSelectorWrapper {
+  position: relative;
+  margin: 10px 0;
+  display: inline-block;
+}
+.columnSelector, .hidden {
+  display: none;
+}
+.columnSelectorButton {
+  background: #99bfe6;
+  border: #888 1px solid;
+  color: #111;
+  border-radius: 5px;
+  padding: 5px;
+}
+#colSelect1:checked + label {
+  background: #5797d7;
+  border-color: #555;
+}
+#colSelect1:checked ~ #columnSelector {
+  display: block;
+}
+.columnSelector {
+  width: 120px;
+  position: absolute;
+  top: 30px;
+  padding: 10px;
+  background: #fff;
+  border: #99bfe6 1px solid;
+  border-radius: 5px;
+}
+.columnSelector label {
+  display: block;
+}
+.columnSelector input {
+  margin-right: 5px;
+}
+.columnSelector .disabled {
+  color: #ddd;
+}

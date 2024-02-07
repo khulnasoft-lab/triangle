@@ -1,0 +1,70 @@
+#!/usr/bin/python3
+
+import datetime
+import urllib.parse
+
+import dmt.db as db
+from dmt.Masterlist import Masterlist
+
+MASTERLIST='Mirrors.masterlist.in'
+ARCHIVEKEY = 'Archive'
+SERVICE = 'http'
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--archivekey', help='Key for the current archive', default=ARCHIVEKEY)
+    parser.add_argument('--origin', help='Label for the origin', default=MASTERLIST)
+    parser.add_argument('--masterlist', help='Mirrors.masterlist.in file', default=MASTERLIST)
+    parser.add_argument('--dburl', help='database', default=db.MirrorDB.DBURL)
+    args = parser.parse_args()
+
+    masterlist = Masterlist(args.masterlist).entries
+    session = db.MirrorDB(args.dburl).session()
+
+    db.update_or_create(session, db.Origin, {}, label=args.origin)
+    origin = session.query(db.Origin).filter_by(label = args.origin).first()
+    assert(origin is not None)
+
+    for sitename, sitedata in masterlist.items():
+        for k in (args.archivekey+"-"+SERVICE+"-monitor", args.archivekey+"-"+SERVICE):
+            if k in sitedata:
+                http_path = sitedata[k]
+                break
+        else:
+            continue
+
+        dbdata = { 'origin_id': origin.id,
+                   'http_path': http_path
+                 }
+
+        if 'Connect-http-monitor' in sitedata:
+            up = urllib.parse.urlparse('//'+sitedata['Connect-http-monitor'])
+            dbdata['http_override_host'] = up.hostname
+            dbdata['http_override_port'] = up.port
+
+        db.update_or_create(session, db.Site, dbdata, name=sitename)
+        site = session.query(db.Site).filter_by(name = sitename).first()
+
+        added = set()
+        candidates = sitedata['Candidate'] if 'Candidate' in sitedata else []
+        for candidate in candidates:
+            (pri, name) = candidate.split(' ', 1)
+            db.update_or_create(session, db.SiteAlias, {'priority': int(pri)}, name=name, site_id=site.id)
+            added.add(name)
+
+        provides = sitedata['Provides'] if 'Provides' in sitedata else []
+        for alias in provides:
+            if not alias in added:
+                db.update_or_create(session, db.SiteAlias, {'priority': None}, name=alias, site_id=site.id)
+                added.add(alias)
+
+        for alias in session.query(db.SiteAlias).filter_by(site_id = site.id):
+            if alias.name not in added:
+                session.delete(alias)
+
+    for site in session.query(db.Site).filter_by(origin_id = origin.id):
+        if site.name not in masterlist:
+            session.delete(site)
+
+    session.commit()

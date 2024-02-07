@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}{{ distro }} mirror report: {{site.name}}{% endblock %}
+{% block content %}
+[<a href="../mirror-status.html#{{site.name}}">S</a>,<a href="../mirror-hierarchy.html#{{site.name}}">H</a>,<a href="{{site.base_url}}">site</a>]
+
+{% if site.bugs %}
+  <br>
+{% endif %}
+{% for k in site.bugs %}
+  {% if k.done %}<del>{% endif %}
+    [{{k.date}}/<strong>{{k.log_modified}}</strong>]&nbsp;#{{k.bug_num}}: <a href="https://bugs.debian.org/{{k.bug_num}}">{{k.subject}}</a>
+  {% if k.done %}</del>{% endif %}
+  {% if not loop.last %}<br>{% endif %}
+{% endfor %}
+
+<table class="table table-striped" id="results">
+<tr class="thead-default">
+  <td>Date</td>
+  <td><abbr title="master trace as of last update of site tracefile"><a href="{{site.trace_url}}master">mirror version</a></abbr></td>
+  <td><abbr title="master trace last seen on archive master">age</abbr></td>
+  <td><a href="{{site.trace_url}}master">mastertrace</a></td>
+  <td><a href="{{site.trace_url}}{{site.name}}">sitetrace</a></td>
+  <td><a href="{{site.trace_url}}">traceset</a></td>
+  <td>score</td>
+  <td>aliases/candidate</td>
+  <td><abbr title="Archive-Update-in-Progress">AUiP</abbr></td>
+  <td><abbr title="Archive-Update-Required">AUR</abbr></td>
+</tr>
+
+{% for c in checks %}
+  <tr>
+    <td class="date">
+      {{c.checkrun_timestamp.strftime('%Y-%m-%d %H:%M:%S')}}
+    </td>
+
+    {% if not c.checkoverview_id %}
+      <td class="error" colspan="2">unknown</td>
+    {% elif c.checkoverview_error %}
+      <td class="error" colspan="2">{{ c.checkoverview_error }}</td>
+    {% else %}
+      <td class="date">
+        {% if c.checkoverview_version_changed is defined and c.checkoverview_version_changed %}<strong>{% endif %}
+        {{ c.checkoverview_version.strftime('%Y-%m-%d %H:%M:%S') }}
+        {% if c.checkoverview_version_changed is defined and c.checkoverview_version_changed %}</strong>{% endif %}
+      </td>
+      <td class="date {{c.checkoverview_age|agegroupclass}}">
+        {{c.checkoverview_age|timedeltaage(c.checkrun_timestamp)}}
+      </td>
+    {% endif %}
+
+    {% if not c.mastertrace_id %}
+      <td class="error">No mastertrace info.</td>
+    {% elif c.mastertrace_error %}
+      <td class="error">{{ c.mastertrace_error }}</td>
+    {% else %}
+      <td class="date">
+        {% if c.mastertrace_trace_timestamp_changed is defined and c.mastertrace_trace_timestamp_changed %}<strong>{% endif %}
+        {{ c.mastertrace_trace_timestamp.strftime('%Y-%m-%d %H:%M:%S') }}
+        {% if c.mastertrace_trace_timestamp_changed is defined and c.mastertrace_trace_timestamp_changed %}</strong>{% endif %}
+      </td>
+    {% endif %}
+
+    {% if not c.sitetrace_id %}
+      <td class="error">No sitetrace info.</td>
+    {% elif c.sitetrace_error %}
+      <td class="error">{{ c.sitetrace_error }}</td>
+    {% else %}
+      <td class="date">
+        {% if c.sitetrace_trace_timestamp_changed is defined and c.sitetrace_trace_timestamp_changed %}<strong>{% endif %}
+        <a href="../mirror-traces/{{c.sitetrace_trace_digest[:2]}}/{{c.sitetrace_trace_digest}}.txt">{{ c.sitetrace_trace_timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</a>
+        {% if c.sitetrace_trace_timestamp_changed is defined and c.sitetrace_trace_timestamp_changed %}</strong>{% endif %}
+      </td>
+    {% endif %}
+
+    {% if not c.traceset_id %}
+      <td class="error">No traceset info.</td>
+    {% elif c.traceset_error %}
+      <td class="error">{{ c.traceset_error }}</td>
+    {% else %}
+      <td>
+        {% for trace in c.traceset_traceset %}
+          {% if trace in allsitenames and trace != site.name %}
+            <a href="{{ trace }}.html">{{ trace }}</a>
+          {%- else %}
+            {{ trace }}
+          {%- endif %}
+          {%- if not loop.last %},{% endif %}
+        {% endfor %}
+      </td>
+    {% endif %}
+    <td>{{ '%0.2f'| format(c.checkoverview_score|float) }}</td>
+
+    <td>
+      {% if not c.aliases %}
+        - none -
+      {% else %}
+        {% for k in c.aliases %}
+          {% if c.aliases[k].error is defined %}
+            <span class="aliaserror">
+              {{k}}: {{c.aliases[k].error}}
+            </span>
+          {% elif c.aliases[k].ok %}
+              {{k}}: OK
+          {% else %}
+            <span class="aliaswarning">
+              {{k}}: mismatch?
+            </span>
+          {% endif %}
+        {{ "," if not loop.last else "" }}
+        {% endfor %}
+      {% endif %}
+    </td>
+
+    {% if not c.sitetrace_id or c.sitetrace_error %}
+      <td class="error"></td>
+    {% else %}
+      <td class="date,tiny">
+        {% if c.sitetrace_archive_update_in_progress %}{{ c.sitetrace_archive_update_in_progress }}
+        {% else %}-
+        {% endif %}
+      </td>
+    {% endif %}
+
+    {% if not c.sitetrace_id or c.sitetrace_error %}
+      <td class="error"></td>
+    {% else %}
+      <td class="date,tiny">
+        {% if c.sitetrace_archive_update_required %}{{ c.sitetrace_archive_update_required }}
+        {% else %}-
+        {% endif %}
+      </td>
+    {% endif %}
+  </tr>
+{% endfor %}
+</table>
+{% endblock content %}

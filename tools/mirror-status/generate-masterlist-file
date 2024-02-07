@@ -1,0 +1,193 @@
+#!/usr/bin/python3
+
+
+import dmt.db as db
+import dmt.helpers as helpers
+from dmt.Masterlist import Masterlist
+
+import argparse
+import datetime
+import email.policy
+import json
+import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+
+SCORE_CUTOFF = 50.0
+FTP_CC_MIRROR = re.compile('ftp[0-9]*\.[a-z][a-z]\.debian\.org')
+KEYS = [
+        'Country',
+        'Location',
+        'Type',
+        'Archive-architecture',
+        'Archive-http',
+        'Archive-rsync',
+        'Ports-architecture',
+        'Ports-http',
+        'Ports-rsync',
+        'Old-architecture',
+        'Old-http',
+        'Old-rsync',
+        'CDImage-architecture',
+        'CDImage-http',
+        'CDImage-rsync',
+        'Sponsor',
+        'Comment',
+        ]
+# for roles:
+ROLE_FTP_CC_ONLY_KEYS = set(['Country', 'Archive-http', 'Archive-architecture'])  # unless overwritten in role
+KNOWN_ARCHS = set(subprocess.check_output(['dpkg-architecture', '--list-known']).decode().split())
+
+
+def get_mirror_status(dbh):
+    cur = dbh.cursor()
+
+    cur.execute("""
+        SELECT
+            site.name AS site,
+            score,
+
+            (SELECT
+                    content
+                 FROM
+                    sitetrace
+                    JOIN checkrun ON (sitetrace.checkrun_id = checkrun.id)
+                 WHERE
+                    site.id = sitetrace.site_id
+                    AND content IS NOT NULL
+                 ORDER BY
+                    timestamp DESC
+                 LIMIT 1
+                 ) AS sitetrace
+        FROM
+            site
+            JOIN checkoverview ON (site.id = checkoverview.site_id)
+        WHERE
+            checkoverview.checkrun_id = (SELECT id FROM checkrun ORDER BY timestamp DESC LIMIT 1)
+        """)
+
+    mirror_status = {}
+    for row in cur.fetchall():
+        mirror_status[ row['site'] ] = row
+    return mirror_status
+
+def listify(value):
+    if isinstance(value, list):
+        return value
+    else:
+        return [value]
+
+
+def print_base_host(sitedata):
+    for key in ['Site'] + KEYS:
+        if key in sitedata:
+            value = sitedata[key]
+            for v in listify(value):
+                print("%s: %s"%(key, v))
+
+    print()
+
+# provider is one of the hosts backing the role.
+# its info is supposed to match all the others, unless the info is in override also
+def print_role_host(role, roledata, provider, override):
+    print("%s: %s"%('Site', role))
+    for key in KEYS:
+        if key in roledata:
+            value = roledata[key]
+        elif key in override and len(override[key]) > 0:
+            value = override[key]
+        elif key in provider:
+            value = provider[key]
+        else:
+            continue
+
+        if (not re.fullmatch(FTP_CC_MIRROR, role)) or (key in roledata) or (key in ROLE_FTP_CC_ONLY_KEYS):
+            if isinstance(value, list):
+                for v in value:
+                    print("%s: %s"%(key, v))
+            else:
+                print("%s: %s"%(key, value))
+    print()
+
+def extract_archs(site_status):
+    if 'sitetrace' not in site_status: return None
+    sitetrace = site_status['sitetrace']
+    if sitetrace is None: return None
+
+    if 'architectures' not in sitetrace: return None
+    archs = sitetrace['architectures']
+    if 'text' not in archs: return None
+    archs = archs['text'].split()
+
+    archs = sorted([a for a in archs if a in KNOWN_ARCHS])
+    return ' '.join(archs)
+
+def build_updated_masterlist(masterlist, mirror_status):
+    valid_sites = {}
+    for sitename, sitedata in masterlist.entries.items():
+        if sitename in mirror_status:
+            if mirror_status[sitename]['score'] < SCORE_CUTOFF:
+                logging.info("Skipping %s due to score of %.1f.", sitename, mirror_status[sitename]['score'])
+                continue
+            archs_from_sitetrace = extract_archs(mirror_status[sitename])
+            if archs_from_sitetrace is not None:
+                sitedata['Archive-architecture'] = archs_from_sitetrace
+        else:
+            logging.info("No mirror info for %s in database; just using it as is.", sitename)
+        valid_sites[sitename] = True
+
+
+        if 'Internal' in sitedata:
+            logging.info("Not including internal site %s.", sitename)
+            continue
+        print_base_host(sitedata)
+
+    for rolename, roledata in masterlist.includes.items():
+        providers = roledata['Includes'].split();
+        providers = list(filter(lambda sitename: sitename in valid_sites, providers))
+        if len(providers) == 0:
+            logging.info("No valid provider for role %s. Skipping.", rolename);
+            continue
+
+        countries = sorted(set([i for site in providers for i in listify(masterlist.entries[site]['Country' ]) if i is not None]))
+        locations = sorted(set([i for site in providers for i in listify(masterlist.entries[site]['Location']) if i is not None]))
+        sponsors  = sorted(set([i for site in providers for i in listify(masterlist.entries[site]['Sponsor' ]) if i is not None]))
+
+        print_role_host(rolename, roledata, masterlist.entries[ providers[0] ],
+            { 'Country': countries,
+              'Location': locations,
+              'Sponsor': sponsors,
+            } )
+
+
+MASTERLIST='Mirrors.masterlist.in'
+
+OUTDIR='out'
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--outdir', help='outdir', default=OUTDIR)
+    parser.add_argument('--dburl', help='database', default=db.MirrorDB.DBURL)
+    parser.add_argument('--verbose', help='verbose', action='store_true', default=False)
+    parser.add_argument('--masterlist', help='input Mirrors.masterlist.in file', default=MASTERLIST)
+    args = parser.parse_args()
+
+    if args.verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.WARN
+    logging.basicConfig(
+        stream=sys.stderr,
+        level=log_level,
+        format='%(message)s')
+
+    if not os.path.isdir(args.outdir):
+        os.mkdir(args.outdir)
+
+    dbh = db.RawDB(args.dburl)
+    mirror_status = get_mirror_status(dbh);
+    masterlist = Masterlist(args.masterlist, ignore_geodns=False)
+    build_updated_masterlist(masterlist, mirror_status)

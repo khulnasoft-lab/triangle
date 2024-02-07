@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}{{ distro }} mirror status{% endblock %}
+{% block content %}
+<div class="columnSelectorWrapper">
+  <input id="colSelect1" type="checkbox" class="hidden">
+  <label class="columnSelectorButton" for="colSelect1">Column</label>
+  <div id="columnSelector" class="columnSelector">
+    <!-- this div is where the column selector is added -->
+  </div>
+</div>
+
+<table class="table table-striped" id="results" data-sortlist="[[0,0]]">
+<thead class="thead-default">
+<tr>
+  <th data-priority="critical" data-sorter="hostname" class="hostname">Site</th>
+  <th data-sorter="digit">mastertrace</th>
+  <th data-sorter="digit"><abbr title="mirror lag">archive version</abbr></th>
+  <th data-sorter="digit">last update</th>
+  <th data-sorter="digit">score</th>
+  <th data-sorter="digit">~#/d</th>
+  <th data-sorter="digit">delay (&mu;/&sigma;)</th>
+  <th data-sorter="false">extra</th>
+  <th data-sorter="text">traces</th>
+  <th data-sorter="text">ftpsync</th>
+  <th data-sorter="text" class="columnSelector-false">configured upstream</th>
+  <th data-sorter="text" class="columnSelector-false">architectures</th>
+</tr>
+</thead>
+
+<tbody>
+{% for mirror in mirrors %}
+  {% if mirror.checkoverview_error and mirror.mastertrace_error %}
+  <tr class="error">
+  {% else %}
+  <tr id="{{mirror.name}}">
+  {% endif %}
+    <td data-text="{{mirror.name}}" class="hostname">
+      <a href="{{mirror.trace_url}}">{{ mirror.name }}</a>
+      [<a href="mirror-hierarchy.html#{{mirror.name}}">H</a>,<a href="mirror-info/{{mirror.name}}.html">R</a>]
+    </td>
+
+    {% if mirror.mastertrace_error %}
+      <td class="error" data-text="max">{{ mirror.mastertrace_error | formaterror }} <span class="error-details">{{ mirror.mastertrace_error }}</span></td>
+    {% else %}
+      <td class="date {{mirror.mastertrace_trace_timestamp|agegroupdeltaclass(ftpmastertrace)}}" data-text="{{ mirror.mastertrace_trace_age | timedelta_total_seconds }}">
+        {{mirror.mastertrace_trace_timestamp|datetimeage(ftpmastertrace)}}
+      </td>
+    {% endif %}
+
+    {% if mirror.checkoverview_error %}
+      <td class="error" data-text="max">{{ mirror.checkoverview_error | formaterror }} <span class="error-details">{{ mirror.checkoverview_error }}</span></td>
+    {% else %}
+      <td class="date {{mirror.checkoverview_age|agegroupclass}}" data-text="{{ mirror.checkoverview_age | timedelta_total_seconds }}">
+        {{mirror.checkoverview_age|timedeltaage(last_run)}}
+      </td>
+    {% endif %}
+
+    {% if mirror.sitetrace_error %}
+      <td class="error" data-text="max">{{ mirror.sitetrace_error | formaterror }} <span class="error-details">{{ mirror.sitetrace_error }}</span></td>
+    {% else %}
+      <td class="date {{mirror.sitetrace_trace_timestamp|agegroupdeltaclass(now)}}" data-text="{{ mirror.sitetrace_trace_age | timedelta_total_seconds }}">
+        {{mirror.sitetrace_trace_timestamp|datetimeage(now)}}
+      </td>
+    {% endif %}
+
+    <td>{{ '%0.2f'| format(mirror.checkoverview_score|float) }}</td>
+
+    {% if not mirror.runs_per_day or mirror.runs_per_day == 0 %}
+      <td class="error">?</td>
+    {% elif mirror.runs_per_day < 1.5 %}
+      <td class="age7">{{ '%0.2f'| format(mirror.runs_per_day|float) }}</td>
+    {% elif mirror.runs_per_day < 3.5 %}
+      <td class="age3">{{ '%0.2f'| format(mirror.runs_per_day|float) }}</td>
+    {% elif mirror.runs_per_day > 6.5 %}
+      <td class="age5">{{ '%0.2f'| format(mirror.runs_per_day|float) }}</td>
+    {% elif mirror.runs_per_day > 5.5 %}
+      <td class="age3">{{ '%0.2f'| format(mirror.runs_per_day|float) }}</td>
+    {% elif mirror.runs_per_day > 4.5 %}
+      <td class="age2">{{ '%0.2f'| format(mirror.runs_per_day|float) }}</td>
+    {% else %}
+      <td class="age0" data-text="{{ '%0.2f'| format(mirror.runs_per_day|float) }}"><abbr title="{{ '%0.2f'| format(mirror.runs_per_day|float) }}">&#x2714;</abbr></td>
+    {% endif %}
+
+    {% if not mirror.max_age_avg %}
+      <td class="error" data-text="max">?</td>
+    {% else %}
+      <td data-text="{{mirror.max_age_avg|timedelta_total_seconds}}"
+      {% if mirror.max_age_avg|timedelta_total_seconds > 36*3600 %}
+        class="age7"
+      {% elif mirror.max_age_avg|timedelta_total_seconds > 24*3600 %}
+        class="age4"
+      {% elif mirror.max_age_avg|timedelta_total_seconds > 16*3600 %}
+        class="age3"
+      {% elif mirror.max_age_avg|timedelta_total_seconds > 8*3600 %}
+        class="age2"
+      {% elif mirror.max_age_avg|timedelta_total_seconds > 4*3600 %}
+        class="age1"
+      {% else %}
+        class="age0"
+      {% endif %}
+      >
+      {{ mirror.max_age_avg|timedelta_hrs_mins }}&nbsp;/&nbsp;{% if not mirror.max_age_stddev %}-{% else %}{{ mirror.max_age_stddev|timedelta_hrs_mins }}{% endif %}
+      </td>
+    {% endif %}
+
+    <td>
+      {% for k in mirror.aliases %}
+        {% if mirror.aliases[k].error is defined %}
+          <span class="aliaserror">
+            {{k}}: {{mirror.aliases[k].error}}
+          </span>
+        {% elif mirror.aliases[k].ok %}
+            {{k}}: OK
+        {% else %}
+          <span class="aliaswarning">
+            {{k}}: mismatch?
+          </span>
+        {% endif %}
+      {{ ";" if not loop.last else "" }}
+      {% endfor %}
+      {% if mirror.aliases and mirror.bugs %}
+        <br>
+      {% endif %}
+      {% for k in mirror.bugs %}
+        {% if k.done %}<del>{% endif %}
+          [{{k.date}}/<strong>{{k.log_modified}}</strong>]&nbsp;#{{k.bug_num}}: <a href="https://bugs.debian.org/{{k.bug_num}}">{{k.subject}}</a>
+        {% if k.done %}</del>{% endif %}
+        {% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </td>
+
+    {% if mirror.traceset_error %}
+      <td data-text="{{mirror.traceset_traceset_sorter}}" class="error">{{ mirror.traceset_error | formaterror }} <span class="error-details">{{ mirror.traceset_error }}</span></td>
+    {% else %}
+      <td data-text="{{mirror.traceset_traceset_sorter}}" class="traceset">
+        {% for trace in mirror.traceset_traceset %}
+          {% if trace in allsitenames and trace != mirror.name %}
+            <a href="mirror-info/{{ trace }}.html">{{ trace }}</a>
+          {%- else %}
+            {{ trace }}
+          {%- endif %}
+          {%- if not loop.last %}<br>{% endif %}
+        {% endfor %}
+      </td>
+    {% endif %}
+
+    {% if not mirror.sitetrace_content is defined %}
+      <td class="error" colspan="3"><span class="error">N/A</span></td>
+    {% else %}
+
+      {% if not mirror.sitetrace_content.used_ftpsync_version is defined or not mirror.sitetrace_content.used_ftpsync_version.text is defined%}
+        <td class="error"><span class="error">unknown</span></td>
+      {% else %}
+        <td data-text="{{ mirror.sitetrace_content.used_ftpsync_version.text }}" class="extrainfo">{{ mirror.sitetrace_content.used_ftpsync_version.text }}</td>
+      {% endif %}
+
+      {% if not mirror.sitetrace_content.upstream_mirror is defined or not mirror.sitetrace_content.upstream_mirror.text is defined%}
+        <td class="error"><span class="error">unknown</span></td>
+      {% else %}
+        <td data-text="{{ mirror.sitetrace_content.upstream_mirror.text }}" class="extrainfo">{{ mirror.sitetrace_content.upstream_mirror.text }}</td>
+      {% endif %}
+
+      {% if mirror.sitetrace_content.architectures is defined and mirror.sitetrace_content.architectures.text is defined
+         and mirror.sitetrace_content.architectures_configuration is defined and mirror.sitetrace_content.architectures_configuration.text is defined %}
+        <td data-text="{{ mirror.sitetrace_content.architectures.text }}" class="extrainfo">
+          C: {{ mirror.sitetrace_content.architectures_configuration.text }}<br>
+          R: {{ mirror.sitetrace_content.architectures.text }}
+        </td>
+      {% elif mirror.sitetrace_content.architectures is defined and mirror.sitetrace_content.architectures.text is defined %}
+        <td data-text="{{ mirror.sitetrace_content.architectures.text }}" class="extrainfo">R: {{ mirror.sitetrace_content.architectures.text }}</td>
+      {% elif mirror.sitetrace_content.architectures_configuration is defined and mirror.sitetrace_content.architectures_configuration.text is defined %}
+        <td data-text="{{ mirror.sitetrace_content.architectures_configuration.text }}" class="extrainfo">C: {{ mirror.sitetrace_content.architectures_configuration.text }}</td>
+      {% else %}
+        <td class="error"><span class="error">unknown</span></td>
+      {% endif %}
+
+    {% endif %}
+
+  </tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock content %}

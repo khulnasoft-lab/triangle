@@ -1,0 +1,37 @@
+#!/usr/bin/python3
+
+import argparse
+import datetime
+import os
+import shutil
+
+import dmt.db as db
+import dmt.helpers as helpers
+from dmt.BasePageRenderer import BasePageRenderer
+import dmt.StatusGenerator as StatusGenerator
+import dmt.HierarchyGenerator as HierarchyGenerator
+import dmt.MirrorinfoGenerator as MirrorinfoGenerator
+
+OUTDIR='out'
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--outdir', help='outdir', default=OUTDIR)
+    parser.add_argument('--dburl', help='database', default=db.MirrorDB.DBURL)
+    parser.add_argument('--templatedir', help='template directory', default='templates')
+    args = parser.parse_args()
+
+    dbh = db.RawDB(args.dburl)
+    base = BasePageRenderer(**args.__dict__)
+
+    if not os.path.isdir(args.outdir):
+        os.mkdir(args.outdir)
+
+    for cl in (StatusGenerator, HierarchyGenerator, MirrorinfoGenerator):
+        of = os.path.join(args.outdir, cl.OUTFILE)
+        i = cl.Generator(outfile=of)
+        for x in i.get_pages(dbh):
+            x.prepare(dbh)
+            base.render(x)
+
+    shutil.copy('mirror-status.css', args.outdir)
+    shutil.copy('sorttable.js', args.outdir)

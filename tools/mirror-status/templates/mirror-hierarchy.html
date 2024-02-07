@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ distro }} mirror hierarchy{% endblock %}
+{% block content %}
+<table id="hiera">
+<tr>
+{% for cell in hierarchy_table %}
+  {% if cell.entrytype == "labels-only" %}
+    <td colspan="{{cell.width}}" rowspan="{{cell.height}}" class="trace">
+      {{cell.labels|join(", ") }}
+    </td>
+  {% elif cell.entrytype == "site" %}
+      <td id="{{cell.name}}"
+      {% if cell.mirror.error %}
+        class="error"
+      {% else %}
+        class="{{cell.mirror.checkoverview_age|agegroupclass}}"
+      {% endif %}
+        colspan="{{cell.width}}" rowspan="{{cell.height}}"
+      >
+        [<a href="mirror-status.html#{{cell.name}}">S</a>,<a href="mirror-info/{{cell.name}}.html">R</a>]
+        {% if cell.main %}
+        <span class="main">
+        {% else %}
+        <span>
+        {% endif %}
+          {% if cell.mirror.error %}
+            <abbr title="{{cell.mirror.error}}">
+          {% elif (cell.mirror.checkoverview_age|timedelta_total_seconds == 0) %}
+            <abbr title="current">
+          {% else %}
+            <abbr title="{{cell.mirror.checkoverview_age|timedeltaagenoabbr(last_run)}}">
+          {% endif %}
+
+            {% if cell.mirror.site_trace_url is defined and cell.mirror.site_trace_url %}
+              <a href="{{cell.mirror.site_trace_url}}">{{cell.name}}</a>
+            {% else %}
+              {{cell.name}}
+            {% endif %}
+          </abbr>
+       </span>
+       {% if cell.mirror.traceset_changes.cnt > 0 %}
+         <span class="tracesetwarning">
+           <br>
+           Traceset changed
+           {% if cell.mirror.traceset_changes.cnt == 1 %}
+             once
+           {% elif cell.mirror.traceset_changes.cnt == 2 %}
+             twice
+           {% else %}
+             {{cell.mirror.traceset_changes.cnt}} times
+           {% endif %}
+           within the last {{recent_hours}} hours,
+           most recently
+           {% if cell.mirror.traceset_changes.last_change == last_run %}
+             this run.
+           {% else %}
+             {{ cell.mirror.traceset_changes.last_change|datetimeage(last_run) }} ago.
+           {% endif %}
+         </span>
+       {% endif %}
+       {% if cell.mirror.aliases %}<br>{% endif %}
+       {% for k in cell.mirror.aliases %}
+         {% if cell.mirror.aliases[k].error is defined %}
+           <span class="aliaserror">
+             {{k}}: {{cell.mirror.aliases[k].error}}
+           </span>
+         {% elif cell.mirror.aliases[k].ok %}
+             {{k}}: OK
+         {% else %}
+           <span class="aliaswarning">
+             {{k}}: mismatch?
+           </span>
+         {% endif %}
+       {{ ";" if not loop.last else "" }}
+       {% endfor %}
+      </td>
+  {% else %}
+    {{ raise("unknown cell.entrytype") }}
+  {% endif %}
+
+  {% if cell.celltype == "terminal" %}
+    </tr>
+    {% if not (cell.last is defined and cell.last) %}
+      <tr>
+    {% endif %}
+  {% elif cell.celltype == "middle" %}
+  {% else %}
+    {{ raise("unknown cell.celltype") }}
+  {% endif %}
+{% endfor %}
+</table>
+
+<p>
+Italic text refers to tracefile names, cells with color-status correspond to mirrors from the masterlist that are being checked.
+{% endblock content %}

@@ -1,0 +1,24 @@
+#!/usr/bin/python3
+
+import httplib2
+httplib2.CA_CERTS = "/etc/ssl/ca-global/ca-certificates.crt"
+
+import debianbts
+import json
+import os
+
+RELEVANT_FIELDS = ('subject', 'done', 'bug_num', 'tags')
+
+bug_numbers = debianbts.get_bugs(package='mirrors')
+bugs = debianbts.get_status(bug_numbers)
+dicts = [b.__dict__ for b in bugs]
+data = []
+
+for b in dicts:
+    item = { k: b[k] for k in RELEVANT_FIELDS }
+    item['date']         = b['date'].strftime("%Y-%m-%d")
+    item['log_modified'] = b['log_modified'].strftime("%Y-%m-%d")
+    data.append(item)
+
+j = json.dumps(data, indent=4, sort_keys=True)
+print(j)

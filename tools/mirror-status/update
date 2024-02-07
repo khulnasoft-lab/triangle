@@ -1,0 +1,68 @@
+#!/bin/bash
+
+set -e
+set -u
+
+BTS_STATE_FILE=".bugs-state.json"
+BTS_STATE_AGE="3600"
+STATIC_UPDATE_COMPONENT_LOCKFILE=.static-update-component.lock
+
+fullpath=$(readlink -f "$0")
+dir=$(dirname "$fullpath")
+cd "$dir"
+
+exec 200< "$fullpath"
+if ! flock -w 60 -e 200; then
+	echo >&1 "Cannot acquire lock"
+	exit 1
+fi
+
+
+if ! [ -e "$BTS_STATE_FILE" ] || [ "$(stat --format=%Y "$BTS_STATE_FILE" )" -le "$(( $(date +%s) - $BTS_STATE_AGE ))" ]; then
+  if ./get-bug-status > "$BTS_STATE_FILE".new; then
+    mv "$BTS_STATE_FILE".new "$BTS_STATE_FILE"
+  fi
+fi
+
+TARGET="$dir"/htdocs
+
+./import-mirrors
+./import-mirrors --origin internal --masterlist internal-mirrors.list
+./run-tests
+./run-process
+
+./import-mirrors --archivekey Security --dburl postgresql:///mirror-status-security
+./import-mirrors --archivekey Security --dburl postgresql:///mirror-status-security --origin internal --masterlist internal-mirrors.list
+./run-tests --dburl postgresql:///mirror-status-security
+./run-process --dburl postgresql:///mirror-status-security
+
+tmpdir=$(mktemp -d /tmp/mirror-status.XXXXXXXXXX)
+trap "rm -r $tmpdir" EXIT
+
+./generate --outdir "$tmpdir/status"
+./generate --outdir "$tmpdir/status-security" --dburl postgresql:///mirror-status-security
+./generate-masterlist-file > "$tmpdir/status/Mirrors.masterlist"
+cat > "$tmpdir/status/.htaccess" << EOF
+<Files "Mirrors.masterlist">
+ForceType 'text/plain; charset=UTF-8'
+</Files>
+EOF
+
+chmod a+rX -R "$tmpdir"
+
+mkdir -p "$TARGET"
+rsync -av --copy-unsafe-links "$tmpdir"/* "$TARGET"/ --delete
+
+(
+flock -u 200
+touch "$STATIC_UPDATE_COMPONENT_LOCKFILE"
+exec 201< "$STATIC_UPDATE_COMPONENT_LOCKFILE"
+if ! flock -w 10 -e 201; then
+  exit 0
+else
+  if command -v static-update-component > /dev/null; then
+    static-update-component mirror-master.debian.org > /dev/null 2>&1 < /dev/null
+  fi
+fi
+) &
+disown

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ distro }} mirror tracefile info{% endblock %}
+{% block content %}
+<div class="columnSelectorWrapper">
+  <input id="colSelect1" type="checkbox" class="hidden">
+  <label class="columnSelectorButton" for="colSelect1">Column</label>
+  <div id="columnSelector" class="columnSelector">
+    <!-- this div is where the column selector is added -->
+  </div>
+</div>
+
+<table class="table table-striped" id="results" data-sortlist="[[0,0]]">
+<thead class="thead-default">
+<tr>
+  <th data-priority="critical" data-sorter="hostname" class="hostname">Site</th>
+  <th data-sorter="hostname" class="hostname">Upstream</th>
+  <th data-sorter="text">Software</th>
+  <th>Trigger</th>
+  <th>Total time</th>
+  <th>Architectures configured</th>
+</tr>
+</thead>
+
+<tbody>
+{% for mirror in mirrors %}
+  <tr id="{{mirror.name}}">
+    <td data-text="{{mirror.name}}" class="hostname">
+      <a href="{{mirror.trace_url}}">{{ mirror.name }}</a>
+      [<a href="mirror-hierarchy.html#{{mirror.name}}">H</a>,<a href="mirror-info/{{mirror.name}}.html">R</a>]
+    </td>
+
+    <td data-text="{{ mirror.upstream or '' }}" class="hostname">
+      {{ mirror.upstream or '-' }}
+    </td>
+
+    <td data-text="{{ mirror.creator or '' }}">
+      {{ mirror.creator or '-' }}
+    </td>
+
+    <td data-text="{{ mirror.trigger or '' }}">
+      {{ mirror.trigger or '-' }}
+    </td>
+
+    <td data-text="{{ mirror.time_total or '' }}">
+      {{ mirror.time_total or '-' }}
+    </td>
+
+    <td data-text="{{ mirror.arches or '' }}">
+      {{ mirror.arches or '-' }}
+    </td>
+
+  </tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock content %}

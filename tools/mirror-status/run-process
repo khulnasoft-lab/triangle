@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+
+import dmt.RunProcessor as RunProcessor
+import dmt.RunScorer as RunScorer
+
+if __name__ == "__main__":
+    RunProcessor.main()
+    RunScorer.main()

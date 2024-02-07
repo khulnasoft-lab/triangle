@@ -1,0 +1,39 @@
+#!/bin/bash
+
+set -e
+set -u
+
+fullpath=$(readlink -f "$0")
+dir=$(dirname "$fullpath")
+cd "$dir"
+
+exec 200< "$fullpath"
+if ! flock -w 60 -e 200; then
+	echo >&1 "Cannot acquire lock"
+	exit 1
+fi
+
+TARGET=../htdocs
+
+./import-mirrors
+./run-tests
+./run-process
+
+tmpdir=$(mktemp -d /tmp/mirror-status.XXXXXXXXXX)
+trap "rm -r $tmpdir" EXIT
+
+./generate --outdir "$tmpdir"
+#./generate-masterlist-file > "$tmpdir/Mirrors.masterlist"
+#cat > "$tmpdir/.htaccess" << EOF
+#<Files "Mirrors.masterlist">
+#ForceType 'text/plain; charset=UTF-8'
+#</Files>
+#EOF
+
+rm -f $tmpdir/external
+cp -a external $tmpdir/
+
+chmod a+rX -R "$tmpdir"
+
+mkdir -p "$TARGET"
+rsync -aq --copy-unsafe-links "$tmpdir"/* "$TARGET"/ --delete

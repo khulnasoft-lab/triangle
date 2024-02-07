@@ -1,0 +1,76 @@
+#!/usr/bin/python3
+
+import datetime
+import queue
+from multiprocessing.pool import ThreadPool
+import threading
+
+import dmt.db as db
+import dmt.checks as checks
+
+import os
+
+DEBIANORG_CA_DIR = '/etc/ssl/ca-global'
+if os.path.exists(DEBIANORG_CA_DIR):
+    os.environ['SSL_CERT_DIR'] = DEBIANORG_CA_DIR
+
+PRUNE_HOURS = 24*28
+
+MAX_CHECKERS = 128
+MAX_QUEUE_SIZE = 64* MAX_CHECKERS
+
+def _run_one_check(checkitem):
+    assert(isinstance(checkitem, checks.BaseCheck))
+    checkitem.run()
+    return checkitem
+
+def _checking_thread(result_queue, checklist):
+    pool = ThreadPool(processes=MAX_CHECKERS)
+    for c in checklist:
+        async_result = pool.apply_async(_run_one_check, [c])
+        result_queue.put(async_result)
+    result_queue.put(None)
+
+def check_result_generator(checklist):
+    result_queue = queue.Queue(MAX_QUEUE_SIZE)
+    t = threading.Thread(target=_checking_thread, args=[result_queue, checklist], daemon=True)
+    t.start()
+
+    while True:
+        element = result_queue.get()
+        result_queue.task_done()
+
+        if element is None: break
+        res = element.get()
+        yield res
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--prune-hours', help='delete checks older than <x> hours', type=float, default=PRUNE_HOURS)
+    parser.add_argument('--dburl', help='database', default=db.MirrorDB.DBURL)
+    args = parser.parse_args()
+
+    dbh = db.MirrorDB(args.dburl)
+
+    session = dbh.session()
+
+    now = datetime.datetime.now()
+    session.query(db.Checkrun).filter(db.Checkrun.timestamp < now - datetime.timedelta(hours=args.prune_hours)).delete()
+
+    checkrun = db.Checkrun(timestamp = now)
+    session.add(checkrun)
+
+    checklist = []
+    for site in session.query(db.Site):
+        checklist.append( checks.MastertraceFetcher(site, checkrun.id) )
+        checklist.append( checks.SitetraceFetcher(site, checkrun.id) )
+        checklist.append( checks.TracesetFetcher(site, checkrun.id) )
+        for c in checks.siteAliasChecker_generator(site, checkrun.id):
+            checklist.append(c)
+
+    for check_result in check_result_generator(checklist):
+        check_result.store(session, checkrun.id)
+
+    session.commit()

@@ -1,0 +1,13 @@
+
+- score adjustment:
+  - negative adjustment if we can't get a traceset
+  - negative adjustment if traceset changed
+- generate a mirror masterlist only of mirrors with good score
+- generate a list of ftp.CC.d.o entries based on providers
+- check HTTPs
+- read trace hierarchy
+
+UI:
+- allow hiding mirrors based on origin in the status table
+- show upstream mirror, trigger type
+- generate mirror info for aliases

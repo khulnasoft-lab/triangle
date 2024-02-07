@@ -1,0 +1,85 @@
+#!/usr/bin/python3
+
+import argparse
+import datetime
+import os
+import shutil
+
+import dmt.db as db
+import dmt.helpers as helpers
+from dmt.BasePageRenderer import BasePageRenderer
+import dmt.StatusGenerator as StatusGenerator
+import dmt.HierarchyGenerator as HierarchyGenerator
+import dmt.MirrorinfoGenerator as MirrorinfoGenerator
+import dmt.MirrorTracefileWriter as MirrorTracefileWriter
+from dmt import TraceGenerator
+
+from multiprocessing.pool import Pool
+import multiprocessing
+import threading
+
+MAX_RENDERERS = multiprocessing.cpu_count()
+MAX_RENDERER_Q_SIZE = MAX_RENDERERS*16
+
+
+def prepare(dbh, args):
+    for cl in (MirrorTracefileWriter, StatusGenerator, TraceGenerator, HierarchyGenerator, MirrorinfoGenerator):
+        of = os.path.join(args.outdir, cl.OUTFILE)
+        i = cl.Generator(outfile=of)
+        yield from i.get_pages(dbh)
+
+def job_producer_thread(dbh, renderer_queue, args):
+
+    #print(os.getpid(), "in job producer thread")
+    for c in prepare(dbh, args):
+        #print(os.getpid(), "putting item into queue", c)
+        renderer_queue.put(c)
+    for x in range(MAX_RENDERERS):
+        renderer_queue.put(None)
+
+
+def job_consumer_proc(x, dbh, renderer_queue, args):
+    #prefix = "%2d"%(x,) + " "*x + "*" + " "*(8-x)
+    #print(os.getpid(), prefix, "in job consumer proc")
+    renderer = BasePageRenderer(**args.__dict__)
+    #print(os.getpid(), prefix, "in job consumer proc 2")
+
+    while True:
+        #print(os.getpid(), prefix, "Wanting an item")
+        i = renderer_queue.get()
+        #print(os.getpid(), prefix, "got item", i)
+        if i is None: break
+        i.prepare(dbh)
+        renderer.render(i)
+
+
+OUTDIR='out'
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--outdir', help='outdir', default=OUTDIR)
+    parser.add_argument('--dburl', help='database', default=db.MirrorDB.DBURL)
+    parser.add_argument('--templatedir', help='template directory', default='templates')
+    args = parser.parse_args()
+
+    if not os.path.isdir(args.outdir):
+        os.mkdir(args.outdir)
+    if os.path.islink(os.path.join(args.outdir, 'external')):
+        os.unlink(os.path.join(args.outdir, 'external'))
+    os.symlink(os.path.realpath('external'), os.path.join(args.outdir, 'external'))
+    shutil.copy('mirror-status.css', args.outdir)
+    shutil.copy('mirror-status.js', args.outdir)
+
+
+    # start fetching things to render
+    renderer_queue = multiprocessing.Queue(MAX_RENDERER_Q_SIZE)
+
+    dbh_job_prod = db.RawDB(args.dburl)
+    dbh_renderer = [ (db.RawDB(args.dburl), x) for x in range(MAX_RENDERERS)]
+
+    t = threading.Thread(target=job_producer_thread, args=(dbh_job_prod, renderer_queue, args), daemon=True)
+    procs = [ multiprocessing.Process(target=job_consumer_proc, args=(i, dbh, renderer_queue, args)) for (dbh, i) in dbh_renderer ]
+
+    t.start()
+    [p.start() for p in procs]
+
+    [p.join() for p in procs]
