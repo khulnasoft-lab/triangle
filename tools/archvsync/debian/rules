@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+# See debhelper(7) (uncomment to enable)
+# output every command that modifies files on the build system.
+#export DH_VERBOSE = 1
+
+include /usr/share/dpkg/pkg-info.mk
+include /usr/share/dpkg/vendor.mk
+export DEB_VERSION
+
+# Only build the extra tar
+# - on Debian, and
+ifeq ($(DEB_VENDOR),Debian)
+# - if the version doesn't contain a backports or other extension.
+  ifeq ($(shell echo $(DEB_VERSION_UPSTREAM_REVISION) | sed -Ee 's/^[0-9]{8}//'),)
+TARNAME = ftpsync_$(DEB_VERSION_UPSTREAM_REVISION)_all.tar.gz
+  endif
+endif
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	dh_auto_install
+ifdef TARNAME
+	$(MAKE) install-tar DESTDIR=debian/ftpsync-tar/distrib
+endif
+
+override_dh_builddeb:
+	dh_builddeb
+ifdef TARNAME
+	tar -c -C debian/ftpsync-tar \
+		--sort=name \
+		--mtime="@${SOURCE_DATE_EPOCH}" \
+		--owner=root:0 \
+		--group=root:0 \
+		distrib | gzip -n > ../$(TARNAME)
+	dpkg-distaddfile $(TARNAME) byhand -
+endif

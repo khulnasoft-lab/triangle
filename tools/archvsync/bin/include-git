@@ -1,0 +1,11 @@
+# -*- mode:sh -*-
+# vim:syn=sh
+
+BASEDIR=${BASEDIR:-"$(readlink -f $(dirname "$0")/..)"}
+CONFDIRS=("${BASEDIR}/etc" ~/.config/ftpsync /etc/ftpsync)
+LOCKDIR="${BASEDIR}/locks"
+LOGDIR="${BASEDIR}/log"
+
+VERSION="g$(cd $BINDIR && git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+
+. "${BINDIR}/common"

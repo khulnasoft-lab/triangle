@@ -1,0 +1,97 @@
+#!/bin/bash
+
+set -e
+cd $(dirname $0)/..
+err=0
+
+# Rotate logfiles
+savelog() {
+    torotate="$1"
+    count=${2:-${LOGROTATE}}
+    while [ ${count} -gt 0 ]; do
+        prev=$(( count - 1 ))
+        if [ -e "${torotate}.${prev}" ]; then
+            mv "${torotate}.${prev}" "${torotate}.${count}"
+        fi
+        count=$prev
+    done
+    mv "${torotate}" "${torotate}.0"
+}
+
+# Get component from command-line
+get_component() {
+    comp=
+    # consider 1st arg from either command-line or ssh original command
+    if [ $# -gt 0 ]; then
+        comp="$1"
+    elif [ -n "$SSH_ORIGINAL_COMMAND" ]; then
+        comp=$(echo "$SSH_ORIGINAL_COMMAND" | cut -d" " -f1)
+    fi
+    # only alphanumeric characters, underscore and dash are allowed
+    if echo "$comp" | grep -q "[^-_[:alnum:]]"; then
+        echo "ERROR: unallowed characters in component, discarding" >&2
+        comp=
+    fi
+    # default to kali-images
+    if [ -z "$comp" ]; then
+        comp=kali-images
+    fi
+    echo $comp
+}
+COMPONENT=$(get_component "$@")
+
+# Load config file
+CONFIG_FILE=etc/mirror-"$COMPONENT".conf
+if [ -e "$CONFIG_FILE" ]; then
+	. "$CONFIG_FILE"
+else
+	echo "ERROR: configuration file $CONFIG_FILE doesn't exist" >&2
+	echo "you can start with etc/mirror-kali-images.conf.sample" >&2
+	exit 1
+fi
+
+# Default values
+RSYNC_HOST=${RSYNC_HOST:-archive.kali.org}
+RSYNC_PATH=${RSYNC_PATH:-kali-images}
+RSYNC_OPTIONS=${RSYNC_OPTIONS:-"--bwlimit=0 -prltvHSB8192 --timeout 3600 --stats --delay-updates --delete --delete-after"}
+LOGROTATE=${LOGROTATE:-14}
+
+if [ -z "$TO" ]; then
+	echo "ERROR: TO variable must be set in $CONFIG_FILE" >&2
+	exit 1
+fi
+
+if [ -n "$RSYNC_USER" ]; then
+	RSYNC_URL="$RSYNC_USER@$RSYNC_HOST::$RSYNC_PATH"
+	export RSYNC_PASSWORD
+else
+	RSYNC_URL="$RSYNC_HOST::$RSYNC_PATH"
+fi
+
+# Prepare before running
+LOCK_FILE=locks/$(basename "${CONFIG_FILE%.*}")
+mkdir -p locks
+LOG_FILE=log/rsync-"$COMPONENT".log
+ERROR_FILE=log/rsync-"$COMPONENT".error
+mkdir -p log
+
+# Take a lock and run the sync, or fail if the lock is already taken
+(
+	command -v flock >/dev/null && FLOCK=flock || FLOCK=true
+	$FLOCK -x -n 9 || exit 123
+	rsync $RSYNC_OPTIONS $RSYNC_URL $TO >"$LOG_FILE" 2>"$ERROR_FILE"
+) 9>"$LOCK_FILE" || err=$?
+
+if [ "$err" -eq "123" ]; then
+	echo "ERROR: failed to acquire the lock $LOCK_FILE" >&2
+	echo "Is another instance already running?" >&2
+	exit 1
+elif [ "$err" -ne "0" ]; then
+        echo "ERROR: rsync $RSYNC_URL $TO failed" >&2
+        echo "See $(pwd)/$ERROR_FILE.0 for details" >&2
+fi
+
+savelog "$LOG_FILE"
+savelog "$ERROR_FILE"
+
+exit $err

@@ -1,0 +1,4 @@
+Use "make kali-tarball" to generate an updated ftpsync.tar.gz that can be
+shipped on https://archive.kali.org/ftpsync.tar.gz and used by any further
+Kali automation and by end users following the public instructions:
+https://www.kali.org/docs/community/setting-up-a-kali-linux-mirror/

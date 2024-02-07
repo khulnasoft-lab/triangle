@@ -1,0 +1,16 @@
+## TO is the only variable that must be set, others will use a reasonable
+## default value.
+
+## Destination path, always keep the trailing slash.
+#TO=/srv/mirrors/kali-images/
+
+## Rsync archive to mirror
+#RSYNC_HOST="archive.kali.org"
+#RSYNC_PATH="kali-images"
+
+## Rsync authentication if needed
+#RSYNC_USER=""
+#RSYNC_PASSWORD=""
+
+## Rsync options
+#RSYNC_OPTIONS="--bwlimit=0 -prltvHSB8192 --timeout 3600 --stats --delay-updates --delete --delete-after"

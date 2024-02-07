@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -euE
+
+BINDIR=$(dirname $(readlink -f "$0")); . "${BINDIR}/include-git" ## INCLUDE COMMON
+export BASEDIR
+
+ARCHIVE=${1:-}
+CONFIG="ftpsync${ARCHIVE:+-$ARCHIVE}.conf"
+NAME=ftpsync-cron
+PROGRAM=ftpsync-cron
+
+read_config "${CONFIG}"
+
+MAILTO=${MAILTO:-${LOGNAME:?Environment variable LOGNAME unset, please check your system or specify MAILTO}}
+MIRRORNAME=${MIRRORNAME:-$(hostname -f)}
+LOCK=${LOCK:-"${TO}/Archive-Update-in-Progress-${MIRRORNAME}"}
+RSYNC_PATH="${RSYNC_PATH:-debian}"
+
+TRACE_UPSTREAM="project/trace/${RSYNC_HOST}"
+TRACE="project/trace/${MIRRORNAME}"
+
+function run_ftpsync() {
+    exec "${BINDIR:+${BINDIR}/}ftpsync" -T "cron" "sync:archive:${ARCHIVE}" "$@"
+}
+
+function cmp_trace() {
+    local trace_uri="http://${RSYNC_HOST}/${RSYNC_PATH}/${TRACE_UPSTREAM}"
+    local trace_local="${TO}/${TRACE}"
+    local trace ret
+
+    if [[ -e $LOCK ]] && $(kill -0 $(< ${LOCK}) 2>/dev/null); then
+	return 0
+    fi
+
+    trace=$(curl --silent --fail --show-error --location "$trace_uri" 2>&1)
+    ret=$?
+    if [[ $ret != 0 ]]; then
+        error "Failed to retrieve $trace_uri: $trace"
+        exit $ret
+    fi
+
+    if ! serial_remote=$(extract_trace_serial_string "$trace"); then
+        error "Failed to parse archive serial from $trace_uri"
+        exit 1
+    elif ! serial_local=$(extract_trace_serial "$trace_local"); then
+        return 1
+    elif [[ $serial_remote != $serial_local ]]; then
+        return 1
+    fi
+}
+
+if ! cmp_trace; then
+    run_ftpsync
+fi

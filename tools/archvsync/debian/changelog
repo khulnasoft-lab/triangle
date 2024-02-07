@@ -1,0 +1,89 @@
+archvsync (20221027) UNRELEASED; urgency=low
+
+  [ Debian Janitor ]
+  * Bump debhelper from old 10 to 12.
+  * Set debhelper-compat version in Build-Depends.
+  * Update standards version to 4.1.5, no changes needed.
+
+  [ Peter Palfrader ]
+  * update ftpsync-cron manpage and replace %% with \%.
+    %% is a newline, \% a percent sign in crontabs.
+
+  [ Raphaël Hertzog ]
+  * Update version
+
+  [ Arnaud Rebillout ]
+  * Update version
+
+ -- Debian Janitor <janitor@jelmer.uk>  Sat, 27 Jun 2020 03:15:15 -0000
+
+archvsync (20180513) unstable; urgency=medium
+
+  * Try to support BSD and co userland.
+  * Drop support for rsync < 3.0.
+  * Break siblings out of push lock wait if timeout hits.
+  * Disable incremental recursive mode.
+  * Make tar generation reproducible. (closes: #856860)
+  * Update Standards-Version to 4.1.4, no changes.
+  * Lower rsync timeout to 120 seconds. (closes: #882381)
+
+ -- Bastian Blank <waldi@debian.org>  Sun, 13 May 2018 12:43:37 +0200
+
+archvsync (20171018) unstable; urgency=medium
+
+  * Revert usage if --info options for connections with old rsync
+    version.
+
+ -- Bastian Blank <waldi@debian.org>  Wed, 18 Oct 2017 16:55:46 +0200
+
+archvsync (20171017) unstable; urgency=high
+
+  [ Peter Palfrader ]
+  * Add a lot of manpages.
+
+  [ Bastian Blank ]
+  * Make sure correct version of runmirrors is installed.
+  * Always print error if config can't be read.
+  * Support old bash in ftpsync-cron.
+  * Implement minimal SSH transport. (closes: #828727)
+  * Disable rsync human readable output and only read numbers from
+    output.
+  * Ask rsync to only allow save symlinks.
+    CVE-2017-8805
+
+ -- Bastian Blank <waldi@debian.org>  Tue, 17 Oct 2017 15:22:24 +0200
+
+archvsync (20170920) unstable; urgency=medium
+
+  * Make sure source tar is pretty clean. (closes: #875702)
+  * Fix new version nag. (Closes: #865278)
+  * Force permissions of files.
+  * Make sure own trace files are never overwriten.
+  * Check only the archive serial in cron wrapper.
+  * Set default MAILTO to the current user.
+
+ -- Bastian Blank <waldi@debian.org>  Wed, 20 Sep 2017 14:22:39 +0200
+
+archvsync (20170912) unstable; urgency=medium
+
+  [ Peter Palfrader ]
+  * Fix Typo in Maintainer field (re: #856695, closes: #856912).
+
+  [ Bastian Blank ]
+  * Drop unused sync tools and configs.
+  * Fix i18n/by-hash include for stage 1.
+  * Always generate full trace.
+  * Add ftpsync-cron script.
+  * Add several mirror information to trace file.
+  * Add informations about the used trigger to trace file.
+  * Support URL as a mirror specification.
+  * Only build extra tar on Debian, (closes: #875455)
+  * Don't duplicate code during expansion. (closes: #857702)
+
+ -- Bastian Blank <waldi@debian.org>  Tue, 12 Sep 2017 22:02:08 +0200
+
+archvsync (20170204) unstable; urgency=medium
+
+  * Initial packaged release
+
+ -- Bastian Blank <waldi@debian.org>  Sun, 22 Jan 2017 18:21:13 +0100
