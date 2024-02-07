@@ -2,10 +2,7 @@ name: Dockerize Tools
 
 on:
   push:
-    branches: [ "master" ]
-    # Publish semver tags as releases.
-  pull_request:
-    branches: [ "master" ]
+    branches: [ master ]
 
 jobs:
   build:
@@ -48,13 +45,14 @@ jobs:
             symlink_name="$SYMBOLIC_PREFIX$dir"
             ln -sf "$dir" "$DESTINATION/$symlink_name"
           done
-          
-      - name: Push images to registry (optional)
 
+      # Push images to registry (optional)
+      - name: Push images to registry (optional)
+        run: |
           echo "Pushing images to registry (replace example commands with your registry)"
-          Replace 'khulnasoft-lab' with your registry login and tag each image
+          Replace 'your_registry' with your registry login and tag each image
           for dir in $DIRS; do
-            docker login ${{ env.REGISTRY }}/${{ github.actor }}
-            docker tag "$dir" ${{ github.actor }}/$dir:latest
-            docker push ${{ github.actor }}/$dir:latest
+            docker login your_registry
+            docker tag "$dir" your_registry/$dir:latest
+            docker push your_registry/$dir:latest
           done
