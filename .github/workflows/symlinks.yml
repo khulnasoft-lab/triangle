@@ -1,0 +1,19 @@
+name: symlinks Tools
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Create symlinks (optional)
+        run: |
+          for dir in tools/*; do
+            if [[ -f "$dir/Dockerfile" ]]; then
+              ln -sf "$dir" "/$(basename "$dir")"
+            fi
+          done
