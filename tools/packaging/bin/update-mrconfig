@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+#
+# Recreate mrconfig with active project(s) (aka package repositories) which are on GitLab.com
+#   This was more 'simpler' at one stage, as it used Debia devscript's salsa (see git history)
+#   However:
+#     - Its a much larger package (which slows down GitLab's CI)
+#     - (At the time of writing) it wasn't retrying on failure
+#       libgitlab-api-v4-perl has 'retries' but not being used
+#        _Open MR one day for devscripts salsa to add support_
+#
+# Usage: $ ./bin/update-mrconfig [--https|--ssh]
+#   Without argument, will default to: '--ssh'
+#
+# Example:
+#   $ ./bin/update-mrconfig
+#   $ ./bin/update-mrconfig --https
+#   $ ./bin/update-mrconfig --ssh
+#
+# Requirements:
+#   # apt update && apt install --yes --no-install-recommends curl ca-certificates jq
+#
+
+## Quit on error
+set -e
+
+export LC_ALL=C
+
+auth="${1:-ssh}"
+branch="kali/master"
+groupname="kalilinux/packages"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+gitlab_curl() {
+  curl 2>/dev/null \
+      --silent \
+      --show-error \
+      --fail \
+      --retry 5 \
+      $@
+  exitcode=$?
+  if [ "${exitcode}" != "0" ]; then
+    echo "[-] Error with: $@" >&2
+    echo "    Exit code: ${exitcode}" >&2
+    exit 1
+  fi
+}
+
+## Look for group/sub-group's ID
+##   REF: https://docs.gitlab.com/ee/api/groups.html#search-for-group
+search_groups() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/groups/?search=${1// /%20}" \
+    | jq \
+      --compact-output \
+      --monochrome-output \
+      --raw-output \
+      '.[] | select (.web_url=="https://gitlab.com/groups/'"${1}"'") | .id'
+}
+
+## Get IDs for all (sub-)group's projects
+##   REF: https://docs.gitlab.com/ee/api/groups.html#list-a-groups-projects
+get_groups_name() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/groups/${groupID}/projects/?order_by=name&sort=asc&per_page=100&page=${1}&archived=false" \
+    | jq \
+      --compact-output \
+      --monochrome-output \
+      --raw-output \
+      '.[].name'
+}
+
+## Get all subgroups
+get_subgroups_name() {
+  ## Reset page counter
+  page=0
+
+  ## Reset
+  projects=""
+
+  ## Keep going forever
+  while true; do
+    ## Increase page counter
+    page=$((page+1))
+
+    ## Get all projects for that group's name [page amount]
+    project=$( get_groups_name "${page}" )
+
+    ## Check the response, if there isn't any more, quit
+    test -z "${project}" \
+      && break
+
+    projects=$( echo -e "${projects}\n${project}" | grep -v '^$' )
+  done
+  echo "${projects}"
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Check for packages
+for cmd in jq curl; do
+  if ! command -v "${cmd}" 1>/dev/null 2>&1; then
+    echo "[-] Missing: ${cmd}"
+    exit 1
+  fi
+done
+
+## Read in command line arguments/options
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ssh)   auth="ssh";;
+    --https) auth="https";;
+    *)
+      echo "[-] ERROR: unsupported option: $1" >&2
+      echo "    $0 [--https|--ssh]" >&2
+      exit 1
+    ;;
+  esac
+  shift
+done
+
+if [ "${auth}" = "https" ]; then
+  url="https://gitlab.com/"
+else
+  url="git@gitlab.com:"
+fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+groupID=$( search_groups "${groupname}" )
+if [ -z "${groupID}" ]; then
+  echo "[-] ERROR: Unable to get group ID for: https://gitlab.com/${groupname}" >&2
+  echo "    Please check your API token: $ cat $( pwd )/${apikey}" >&2
+  exit 1
+fi
+echo "[i] Found (sub-)group: https://gitlab.com/${groupname} (ID: ${groupID})"
+
+echo "[i] Fetching all projects"
+## Removing WIP as its Kali's way of tracking packages which are Work In Progress queue
+packages=$( get_subgroups_name "${groupID}" \
+            | grep -v "^WIP$" \
+            | sort )
+## Alt way of doing could be something like this
+## ...still would need to put the rest of the boiler template for salsa
+#packages=$( salsa \
+#                 --conf-file ./salsa.d/auth.conf \
+#                 --group-id 5034987 \
+#                 --no-archived \
+#                 ls \
+#            | awk '/Name:/ {print $2}' \
+#            | grep -v "^WIP$" \
+#            | sort )
+
+## Summary is always nice
+packages_count=$( echo "${packages}" | wc -l )
+echo "[i] Found ${packages_count} projects (https://gitlab.com/${groupname})"
+
+if [ -z "${packages}" ] \
+|| [ "${packages_count}" -lt 2 ]; then
+  echo "[-] ERROR: Unable to get any projects" 1>&2
+  exit 1
+fi
+
+cat <<EOF> mrconfig
+[DEFAULT]
+jobs = 4
+
+## Ignore svn/cvs metadata
+svn_test = false
+cvs_test = false
+
+## Checkout the Debian branch if it exists
+post_checkout =
+  cd \$MR_REPO
+  if git show-ref -q --verify refs/remotes/origin/debian; then
+    git branch --track debian origin/debian
+  fi
+
+## Update the 3 branches, plus the Debian branch if it exists
+update =
+  gbp pull
+  if git show-ref -q --verify refs/remotes/origin/debian; then
+    if ! git show-ref -q --verify refs/heads/debian; then
+      git branch --track debian origin/debian
+    fi
+    git fetch origin debian:debian
+  fi
+EOF
+
+for package in ${packages}; do
+  cat <<EOF>> mrconfig
+
+[${package}]
+checkout = gbp clone --debian-branch=${branch} ${url}${groupname}/${package}.git
+EOF
+done
+
+echo "[+] Done"

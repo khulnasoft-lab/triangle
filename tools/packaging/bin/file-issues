@@ -1,0 +1,172 @@
+#!/usr/bin/python3
+
+"""
+File GitLab issues through their API.
+This scripts is helpful when you have to open many issues against GitLab projects.
+
+You need to have configured your GitLab API token in ~/.python-gitlab.cfg.
+"""
+
+"""
+_Open MR one day for devscripts salsa to add support_
+
+Usage: $ ./bin/file-issues [-h] <project> <issue_file>
+
+Example:
+  $ ./bin/file-issues <project> </path/to/file.yml>
+  $ APIKEY=xxx ./bin/file-issues project ./file-issues.d/example.yaml
+  $ SALSA_TOKEN=xxx ./bin/file-issues project ./file-issues.d/big-issue.yml
+
+Requirements:
+  # apt update && apt install --yes --no-install-recommends python3-minimal python3-gitlab python3-yaml
+  - GitLab API token: https://gitlab.com/-/profile/personal_access_tokens
+"""
+
+import argparse
+import gitlab
+import os
+import sys
+import yaml
+
+
+# GitLab SaaS server (needs to end with slash)
+GITLAB_SERVER = "https://gitlab.com/"
+
+# GitLab subgroup (do not end with slash)
+GITLAB_SUBGROUP = "kalilinux/packages"
+
+# Get GitLab token for API calls
+GITLAB_TOKEN = None
+# $ APIKEY=xxx ./$0
+APIKEY = os.environ.get("APIKEY", None)
+# (Fall back) $ SALSA_TOKEN=xxx ./$0
+SALSA_TOKEN = os.environ.get("SALSA_TOKEN", None)
+# If can't find a system variable, use this shell variable file
+APIFILE = ".gitlab-token"
+
+
+def parse_yaml(path):
+    """Parse input YAML file"""
+
+    if not os.path.exists(path):
+        raise argparse.ArgumentTypeError(f"{path} does not exists")
+
+    with open(path, "r") as f:
+        try:
+            return yaml.safe_load(f)
+        except Exception as e:
+            raise argparse.ArgumentTypeError(f"{path} is not a valid YAML file") from e
+
+
+def parse_args(args=sys.argv[1:]):
+    """Parse arguments"""
+    # Read in comments at the start of the file
+    parser = argparse.ArgumentParser(description=sys.modules[__name__].__doc__)
+
+    parser.add_argument(
+        "project",
+        type=str,
+        help="Kali's project to open: {0}/<project>".format(GITLAB_SUBGROUP),
+    )
+    parser.add_argument(
+        "issue_file",
+        type=parse_yaml,
+        help="Path to YAML file with desired issue attributes: </path/to/file.yml>",
+    )
+
+    return parser.parse_args(args)
+
+
+options = parse_args()
+
+# Detect API key
+if APIKEY:
+    GITLAB_TOKEN = APIKEY
+elif SALSA_TOKEN:
+    GITLAB_TOKEN = SALSA_TOKEN
+elif os.path.exists(APIFILE):
+    # Yes, need to trust the source
+    exec(open(APIFILE).read())
+    GITLAB_TOKEN = SALSA_TOKEN
+
+# Auth is required to open a issue
+if not GITLAB_TOKEN:
+    print(
+        """[-] ERROR: You are missing: {0}/{1} or system variable: $APIKEY
+    Create: https://gitlab.com/-/profile/personal_access_tokens
+    Afterwards: echo "SALSA_TOKEN='XXX'" > {0}/{1}""".format(
+            os.getcwd(), APIFILE
+        ),
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# Login using our token
+gl = gitlab.Gitlab(GITLAB_SERVER, private_token=GITLAB_TOKEN)
+
+# GitLab project path (user only needs to enter project name)
+project = gl.projects.get("{0}/{1}".format(GITLAB_SUBGROUP, options.project))
+
+# Replace fields/markers/ with our values
+options.issue_file["title"] = options.issue_file["title"].replace(
+    "@project@", project.path
+)
+options.issue_file["description"] = options.issue_file["description"].replace(
+    "@project@", project.path
+)
+
+issue = None
+links = None
+
+# Search project's issue for the title
+print("Searching for: {0}".format(options.issue_file["title"]))
+issues = project.issues.list(search=options.issue_file["title"])
+
+# # If "labels" in YAML issue file
+# if "labels" in options.issue_file:
+#     # Get first label from YAML
+#     label = options.issue_file["labels"][0]
+#     print("Found label: {0}".format(label))
+#
+#     # Search project's issue for the label
+#     issues = project.issues.list(label=label)
+
+# If found any matching issue
+if len(issues) > 0:
+    issue = issues[0]
+    print("[i] Found issue: {0}".format(issue.web_url))
+# If there isn't an issue, create
+elif issue is None:
+    issue = project.issues.create(options.issue_file)
+    print("[+] Created issue: {0}".format(issue.web_url))
+
+# If "links" in YAML issue file
+if "links" in options.issue_file:
+    # Get links from YAML
+    for link in options.issue_file["links"]:
+        print("[i] Found link: {0}".format(link))
+
+        # Remove GitLab domain/Get path
+        link = link.replace(GITLAB_SERVER, "")
+
+        # kalilinux/subgroup/project/issues/123 -> ['kalilinux/subgroup/project', '123']
+        target_project, target_issue_id = link.split("/issues/")
+
+        # Search GitLab for project
+        target_project = gl.projects.get(target_project)
+
+        # Search GitLab for issue
+        target_issue = target_project.issues.get(target_issue_id)
+
+        # Create link between the issues with what is in the YAML file's "title" and "links" fields
+        issue.links.create(
+            {
+                "target_project_id": target_issue.project_id,
+                "target_issue_iid": target_issue.iid,
+            }
+        )
+        print(
+            "[+] Created link between: {0} & {1}".format(
+                issue.web_url, target_issue.web_url
+            )
+        )

@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+#
+# Archived project(s) (aka package repositories) on GitLab.com
+#   _Open MR one day for devscripts salsa_
+#
+# Usage: $ ./bin/archive-gitlab <project1> [<project2>]
+#
+# Example:
+#   $ ./bin/archive-gitlab project1 project2
+#   $ SALSA_TOKEN=xxx ./bin/archive-gitlab project
+#
+# Requirements:
+#   # apt-get update && apt-get install --yes --no-install-recommends curl ca-certificates
+#   - GitLab API token: https://gitlab.com/-/profile/personal_access_tokens
+#
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Quit on error
+set -e
+#set -eo pipefail
+
+## DEBUG
+#set -x
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+packages=$*
+
+## GitLab API Key
+##   REF: https://gitlab.com/profile/personal_access_tokens
+##   echo 'SALSA_TOKEN="12345678901234567890"' > ${APIFILE} # SALSA_TOKEN is due to Debian's devscripts's salsa.pl
+APIFILE="./.gitlab-token"
+
+## What (sub-)group to search
+groupname="kalilinux/packages"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Pre formatted cURL request to GitLab SaaS API
+gitlab_curl() {
+  curl 2>/dev/null \
+    --silent \
+    --show-error \
+    --fail \
+    --retry 5 \
+    --header "PRIVATE-TOKEN: ${SALSA_TOKEN}" \
+    $@
+}
+
+check_return_code() {
+  code=${1:-$?}
+  if [ ${code} -eq 0 ]; then
+    echo "[+] ${project} archived ~ https://gitlab.com/${groupname}/${2:-$project}"
+  else
+    echo "[-] ERROR: Something went wrong with archival of ${2:-$project}: ${code} ~ https://gitlab.com/${groupname}/${2:-$project}" 1>&2
+  fi
+}
+
+do_archive(){
+  gitlab_curl \
+    --request POST \
+    --output /dev/null \
+    "https://gitlab.com/api/v4/projects/${groupname//\//%2F}%2F${1:-$project}/archive"
+
+  check_return_code "$?" "${1:-$project}"
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Check for API variable/file
+if [ -e "${APIFILE}" ]; then
+  echo "[i] Loading GitLab API Key (File: ${APIFILE})"
+  ## macOS doesn't like this...
+  source "${APIFILE}" \
+    || GITLAB_TOKEN=$( cat "${APIFILE}" )
+elif [ -n "${APIKEY}" ]; then
+  echo "[i] Found system variable: \$APIKEY"
+  GITLAB_TOKEN="${APIKEY}"
+fi
+## Using Debian devscript's salsa?
+if [ -n "${SALSA_TOKEN}" ]; then
+  echo "[i] Found system variable: \$SALSA_TOKEN"
+  GITLAB_TOKEN="${SALSA_TOKEN}"
+fi
+## Final check
+if [ -z "${GITLAB_TOKEN}" ]; then
+  echo "[-] ERROR: You are missing either: ${APIFILE} or a system variable: \$APIKEY" 1>&2
+  echo "    Visit: https://gitlab.com/profile/personal_access_tokens" 1>&2
+  echo "    Create a new key (which has API permission)" 1>&2
+  echo "    Afterwards: echo \"SALSA_TOKEN='XXX'\" > ${APIFILE}" 1>&2 # SALSA_TOKEN is due to Debian's devscripts's salsa.pl
+  exit 1
+fi
+
+if [ -z "${packages}" ]; then
+  echo "[-] ERROR: No project(s) indicated on the command line" 1>&2
+  echo "    $0 <project1> [<project2>]" 1>&2
+  exit 1
+fi
+
+## Check for packages
+for cmd in curl; do
+  if ! command -v "${cmd}" 1>/dev/null 2>&1; then # Alt: &>/dev/null
+    echo "[-] Missing: ${cmd}"
+    #install_package ${cmd}
+    exit 1
+  fi
+done
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+for project in ${packages}; do
+  do_archive "${project}"
+done
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Done
+echo "[i] Done"
+#exit 0

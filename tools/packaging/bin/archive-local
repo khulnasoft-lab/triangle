@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# Move any locally clone project(s) (aka package repositories) which have been remotely archived on GitLab.com
+#
+# Usage: $ ./bin/archive-local [<project-path>] [<archived-path>]
+#   Without argument, will default to:
+#     - project-path: ./../packages/
+#     - archived-path: ./../archived/
+#
+# Example:
+#   $ ./bin/archive-local
+#   $ yes | ./bin/archive-local ~/kali/packages ~/kali/packages/archived
+#
+# Requirements:
+#   $ ./bin/clone-gitlab
+#
+
+## Quit on error
+set -e
+
+## Base folder, to locate mrconfig
+repo_dir=$( dirname "$0" )/..
+
+## Where the clone projects are
+package_dir="${1:-$repo_dir/../packages}"
+
+## Where to move archived projects to
+archive_dir="${2:-$repo_dir/../archived}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Check before doing action
+confirm_to_continue() {
+  read -p "[?] Proceed? [Y/n] " reply
+  case "${reply}" in
+    [Yy]|"")
+      ;;
+    *)
+      echo "[-] Cancelling operation" >&2
+      exit 0
+      ;;
+  esac
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Find absolute path
+package_dir=$( realpath -m "${package_dir}" )
+archive_dir=$( realpath -m "${archive_dir}" )
+
+## Check for myrepos config
+if [ ! -e "${package_dir}/.mrconfig" ]; then
+  echo "[-] Unable to locate: ${package_dir}/.mrconfig" >&2
+  echo "    Please run: $ ./bin/clone-gitlab ${package_dir}" >&2
+  exit 1
+fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Create archive location
+mkdir -pv "${archive_dir}/"
+
+## Feedback about action
+echo "[>] Comparing '${package_dir}/.mrconfig' with 'ls ${package_dir}/*' to see if any projects which may have been archived"
+
+## Not using while loop, due to nested read
+## Spaces in path name will break loop (should not have any though)
+for package in $( ls -1 "${package_dir}/" ); do
+  if ! grep -q "^\[${package}\]$" "${package_dir}/.mrconfig"; then
+    echo "[>] Archive '${package_dir}/${package}' to '${archive_dir}/${package}'"
+    confirm_to_continue
+    mv -v "${package_dir}/${package}" "${archive_dir}/${package}"
+  fi
+done
+
+echo "[+] Done"

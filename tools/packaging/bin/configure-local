@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+#
+# Configure any local project(s) (aka package repositories)
+#   This will apply our "template"
+#
+# Usage: $ ./bin/configure-local [--push|--no-push] [--commit|--no-commit] [--quiet|--verbose>] [<path-to-project1>] [<path-to-project2>]
+#   Without argument, will push anything which has been committed
+#     --push (default) / --no-push     - Submit changes back to GitLab's repository
+#     --commit / --no-commit (default) - Stage or commit changes
+#     --quiet / --verbose              - Make more or less output than standard
+#
+# Example:
+#   $ ./bin/configure-local ~/kali/packages/{<package1>,<package2>}
+#   $ cd ~/kali/packages/<package>; ~/kali/tools/bin/configure-local
+#   $ ./bin/configure-local --no-push --no-commit
+#   $ ./bin/configure-local --push --commit --verbose
+#
+# Requirements:
+#   # apt update && apt install --yes --no-install-recommends git
+#   $ git config --global user.name "Your Name"
+#   $ git config --global user.email "you@example.com"
+#
+
+## Quit on error
+set -e
+
+## Global variables
+AUTO_UPDATE_DIR=$( dirname "$0" )/../configure-local.d
+_changed=0
+packages=""
+
+## Default values for command line arguments/options
+opt_push=0
+opt_commit=1
+opt_verbose=1
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## record_change "commit message" [file-to-commit...]
+record_change() {
+  local message="$1"
+  shift
+
+  git add "${@:-.}"
+  if ! git diff --quiet HEAD -- "${@:-.}" >/dev/null; then
+    _changed=1
+    if [ ${opt_commit} -eq 1 ]; then
+      git commit -q -m "$message" "${@:-.}"
+      if [ ${opt_verbose} -gt 0 ]; then
+        echo "** NEW CHANGE: ${message} **"
+      fi
+      if [ ${opt_verbose} -gt 1 ]; then
+        echo ""
+        git --no-pager show HEAD
+        echo ""
+      fi
+    fi
+  fi
+}
+
+## Must be called with data on stdin, e.g. create_if_missing foo <<END
+create_if_missing() {
+  local path="$1"
+
+  if [ ! -e "${path}" ]; then
+    cat > "${path}"
+    git add "${path}"
+  else
+    cat >/dev/null
+  fi
+}
+
+## Whether this package was forked from another distro
+package_is_fork() {
+  ## Fork where XSBC-O-M has been set already
+  if grep -q "^XSBC-Original-Maintainer:" ./debian/control; then
+    return 0
+  fi
+
+  ## Likely a fork where XSBC-O-M was not set yet
+  if ! grep -q "^Maintainer: .*@kali\.org" ./debian/control; then
+    return 0
+  fi
+
+  ## Not a fork
+  return 1
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Find absolute path
+AUTO_UPDATE_DIR=$( realpath -m "${AUTO_UPDATE_DIR}" )
+
+## Read in command line arguments/options
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-push)   opt_push=0;;
+    --push)      opt_push=1;;
+    --no-commit) opt_commit=0;;
+    --commit)    opt_commit=1;;
+    --quiet)     opt_verbose=0;;
+    --verbose)   opt_verbose=$(( "${opt_verbose}" + 1 ));;
+    *)
+      if [ -d "$1" ]; then
+        packages="${packages} $1"
+      else
+        echo "[-] ERROR: unsupported option: $1" >&2
+        echo "    $0 [--push|--no-push] [--commit|--no-commit] [--quiet|--verbose>] [<path-to-project1>] [<path-to-project2>]" >&2
+        exit 1
+      fi
+      ;;
+  esac
+  shift
+done
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+for package in ${packages}; do
+  if [ ${opt_verbose} -gt 1 ]; then
+    echo "[>] Doing: ${package}"
+  fi
+
+  cd "${package}/"
+
+  if [ ! -d .git ] \
+  || [ ! -d debian ]; then
+    echo "[-] ERROR: $0 needs to be called within a git packaging repository" >&2
+    echo "    Either '${package}/.git/' and/or '${package}/debian/' directories are missing" >&2
+    exit 1
+  fi
+
+  if ! git config user.name >/dev/null 2>&1 || ! git config user.email 1>/dev/null 2>&1; then
+    echo "[-] ERROR: git user.name and/or user.email has not been set (either globally or for the specific project: ${package}" >&2
+    continue
+  fi
+
+  for script in "${AUTO_UPDATE_DIR}"/*.sh; do
+    if [ ${opt_verbose} -gt 1 ]; then
+      echo "    Applying: $( basename "${script}" )"
+    fi
+    source "${script}" \
+      || true
+  done
+
+  if [ ${_changed} -eq 1 ] \
+  && [ ${opt_push} -eq 1 ] \
+  && [ ${opt_commit} -eq 1 ]; then
+    git push -q
+  fi
+done
+
+echo "[+] Done"

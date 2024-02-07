@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+#
+# Clone & update every project(s) (aka package repositories) on GitLab.com
+#
+# Usage: $ ./bin/clone-gitlab [<project-path>]
+#   Without argument, will default to:
+#     - project-path: ./../packages/
+#
+# Example:
+#   $ ./bin/clone-gitlab
+#   $ yes | ./bin/clone-gitlab ~/kali/packages
+#
+# Requirements:
+#   - SSH key added to GitLab.com ~ https://gitlab.com/-/profile/keys
+#   # apt update && apt install --yes --no-install-recommends mr git-buildpackage openssh-client
+#   - Debian 12 or higher
+#
+
+## Quit on error
+set -e
+
+## Base folder, to locate mrconfig
+repo_dir=$( dirname "$0" )/..
+
+## Where to clone projects
+package_dir="${1:-$repo_dir/../packages}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Check before doing action
+confirm_to_continue() {
+  read -p "[?] Proceed? [Y/n] " reply
+  case "${reply}" in
+    [Yy]|"");;
+    *)
+      echo "[-] Cancelling operation" >&2
+      exit 0
+      ;;
+  esac
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Find absolute path
+package_dir=$( realpath -m "${package_dir}" )
+repo_dir=$( realpath -m "${repo_dir}" )
+
+## Check for required packages/command - mr
+if ! command -v mr 1>/dev/null 2>&1; then
+  echo "[-] Please run: $ sudo apt install mr" >&2
+  exit 1
+fi
+## Check for required packages/command - gbp
+if ! command -v gbp 1>/dev/null 2>&1; then
+  echo "[-] Please run: $ sudo apt install git-buildpackage" >&2
+  exit 1
+fi
+## Check for required packages/command - git via ssh
+if ! command -v ssh 1>/dev/null 2>&1; then
+  echo "[-] Please run: $ sudo apt install openssh-client" >&2
+  exit 1
+fi
+
+## Check for myrepos config
+if [ ! -e "${repo_dir}/mrconfig" ]; then
+  echo "[-] Unable to locate: ${repo_dir}/mrconfig" >&2
+  echo "    Please run: $ ./bin/update-mrconfig" >&2
+  exit 1
+fi
+
+## Check for ~/.ssh folder
+if [ ! -d "${HOME}/.ssh" ]; then
+  echo "[i] Missing: ${HOME}/.ssh"
+  mkdir -p "${HOME}/.ssh"
+  chmod 0700 "${HOME}/.ssh"
+fi
+
+if ssh -o StrictHostKeyChecking=yes gitlab.com 2>&1 | grep -q 'host key is known'; then
+  echo "[i] Missing: gitlab.com in ~/.ssh/known_hosts"
+  ssh-keyscan -H -t rsa gitlab.com 2>/dev/null >> ~/.ssh/known_hosts
+fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Create clone location
+mkdir -pv "${package_dir}/"
+
+## Feedback about action
+echo "[>] To easily clone all repositories, create: ${package_dir}/.mrconfig"
+confirm_to_continue
+
+## Copy myrepos config
+cp -v "${repo_dir}/mrconfig" "${package_dir}/.mrconfig"
+
+## Set trust
+if [ ! -e ~/.mrtrust ] || ! grep -q "${package_dir}/.mrconfig" ~/.mrtrust; then
+  echo "${package_dir}/.mrconfig" >>~/.mrtrust
+fi
+
+## Feedback about action
+echo "[>] Force clone all repositories into: ${package_dir}"
+confirm_to_continue
+
+## Clone projects
+mr \
+  --force \
+  --stats \
+  --directory "${package_dir}/" \
+  --config "${package_dir}/.mrconfig" \
+  update  # checkout = just clone without updating
+  #--verbose # Feels little too noisy
+
+echo "[+] Done"

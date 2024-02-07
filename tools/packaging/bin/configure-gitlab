@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# Configure any remote project(s) (aka package repositories) which are on GitLab.com
+#   This will apply our "template"
+#
+# Usage: $ ./bin/configure-gitlab [--all|<project1>] [<project2>]
+#   Without argument, will default to: '--all'
+#
+# Example:
+#   $ ./bin/configure-gitlab
+#   $ ./bin/configure-gitlab --all
+#   $ ./bin/configure-gitlab project1 project2
+#   $ yes | ./bin/configure-gitlab project
+#
+# Requirements:
+#   # apt update && apt install --yes --no-install-recommends devscripts libgitlab-api-v4-perl
+#   - GitLab API token: https://gitlab.com/-/profile/personal_access_tokens
+#
+
+## Quit on error
+set -e
+
+packages="${*:---all}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+source .gitlab-token 2>/dev/null \
+  || true
+
+if [ -z "${SALSA_TOKEN}" ]; then
+  echo "[-] ERROR: You are missing: $( pwd )/.gitlab-token" >&2
+  echo "    Create: https://gitlab.com/-/profile/personal_access_tokens" >&2
+  echo "    Afterwards: echo \"SALSA_TOKEN='XXX'\" > $( pwd )/.gitlab-token" >&2
+  exit 1
+fi
+
+if [ ! -e ./salsa.d/auth.conf ] \
+|| [ ! -e ./salsa.d/packages.conf ]; then
+  echo "[-] ERROR: You don't seem to be in the correct directory" >&2
+  echo "    Run this tool from the top-level directory as: ./bin/configure-gitlab" >&2
+  exit 1
+fi
+
+# Check if salsa is installed
+if ! command -v salsa 1>/dev/null 2>&1; then
+  echo "[-] Please run: $ sudo apt install devscripts" >&2
+  exit 1
+fi
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+if [ "${packages}" = "--all" ]; then
+  ## group-id 5034987 = https://gitlab.com/kalilinux/packages
+  ## ls has changed its default behaviour before, to include "archived" & "non-archived" repos
+  ## Removing WIP as its Kali's way of tracking packages which are Work In Progress queue
+  echo "[i] Fetching all projects"
+  packages=$( salsa \
+                   --conf-file ./salsa.d/auth.conf \
+                   --group-id 5034987 \
+                   --no-archived \
+                   ls \
+              | awk '/Name:/ {print $2}' \
+              | grep -v "^WIP$" \
+              | sort )
+
+  ## Summary is always nice
+  echo "[i] Total: $( echo "${packages}" | wc -l ) projects"
+fi
+
+## Update projects
+salsa \
+  --conf-file  ./salsa.d/auth.conf \
+  --conf-file +./salsa.d/packages.conf \
+  --debug \
+  --verbose \
+  --no-fail \
+  update_safe \
+  ${packages}
+
+echo "[+] Done"

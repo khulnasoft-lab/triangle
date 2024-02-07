@@ -1,0 +1,257 @@
+#
+## REF: (Project) https://gitlab.com/kalilinux/tools/packaging/-/pipeline_schedules
+#
+
+## CI/CD -> Schedules -> New Schedule
+##   - Description: Daily (configure-gitlab)
+##   - Interval Pattern: Custom -> 0 0 * * *
+##   - Cron Timezone: [UTC 0] UTC
+##   - Target branch or tag: main
+##   - Variable:
+##     - Variable
+##     - Input: JOB
+##     - Value: configure-gitlab
+##   - Activated: Enable
+
+## CI/CD -> Schedules -> New Schedule
+##   - Description: Daily (branchprotection-gitlab)
+##   - Interval Pattern: Custom -> 0 0 * * *
+##   - Cron Timezone: [UTC 0] UTC
+##   - Target branch or tag: main
+##   - Variable:
+##     - Variable
+##     - Input: JOB
+##     - Value: branchprotection-gitlab
+##   - Activated: Enable
+
+## CI/CD -> Schedules -> New Schedule
+##   - Description: Daily (gitlab-overview)
+##   - Interval Pattern: Custom -> 0 0 * * *
+##   - Cron Timezone: [UTC 0] UTC
+##   - Target branch or tag: main
+##   - Variable:
+##     - Variable
+##     - Input: JOB
+##     - Value: gitlab-overview
+##   - Activated: Enable
+
+## CI/CD -> Schedules -> New Schedule
+##   - Description: Daily (update-mrconfig)
+##   - Interval Pattern: Custom -> 0 0 * * MON
+##   - Cron Timezone: [UTC 0] UTC
+##   - Target branch or tag: main
+##   - Variable:
+##     - Variable
+##     - Input: JOB
+##     - Value: configure-gitlab
+##   - Activated: Enable
+
+## CI/CD -> Schedules -> New Schedule
+##   - Description: Monthly (build-gitlab)
+##   - Interval Pattern: Custom -> 0 0 L * *
+##   - Cron Timezone: [UTC 0] UTC
+##   - Target branch or tag: main
+##   - Variable:
+##     - Variable
+##     - Input: JOB
+##     - Value: build-gitlab
+##   - Activated: Enable
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+#
+## REF (Project): https://gitlab.com/kalilinux/tools/packaging/-/settings/ci_cd -> General pipelines
+#
+
+## Expand -> Timeout: 3 hours
+##   SaaS: 3 hours max limit
+##   REF: https://docs.gitlab.com/ee/ci/runners/
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+#
+## REF (Project): https://gitlab.com/kalilinux/tools/packaging/-/settings/access_tokens
+#
+
+## Project Access Tokens -> Add new token
+##   - Token name: GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN
+##   - Expiration date: N/A
+##   - Select a role: Developer
+##   - Select scopes:
+##     - write_repository   (Read & write)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## REF (Sub-Group): https://gitlab.com/groups/kalilinux/packages/-/settings/access_tokens
+
+## Group Access Tokens -> Add new token
+##   - Token name: GITLAB_PACKAGES_GROUP_ACCESS_TOKEN
+##   - Expiration date: N/A
+##   - Select a role: Maintainer
+##   - Select scopes:
+##     - api   (Read & write)
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+#
+## REF (Project): https://gitlab.com/kalilinux/tools/packaging/-/settings/ci_cd -> Variables
+#
+
+## Expand -> Add variable
+##   - Key: GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN
+##   - Value: <Value from Project Access Tokens>
+##   - Type: Variable
+##   - Environment scope: production
+##   - Protect variable: Enabled
+##   - Mask variable: Enabled
+##   - Expand variable reference: Disabled
+
+## Expand -> Add variable
+##   - Key: GITLAB_PACKAGES_GROUP_ACCESS_TOKEN
+##   - Value: <Value from Project Access Tokens>
+##   - Type: Variable
+##   - Environment scope: production
+##   - Protect variable: Enabled
+##   - Mask variable: Enabled
+##   - Expand variable reference: Disabled
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## REF: https://hub.docker.com/_/debian/
+image: 'docker.io/library/debian:11-slim'
+
+variables:
+  # Create a shallow git copy
+  GIT_DEPTH: 1
+  # Name that appears in the commit log
+  AUTHOR_NAME: "GitLab CI"
+  # Email that appears in the commit log
+  AUTHOR_EMAIL: "gitlab-ci@kali.org"
+  ## Need devscripts to be or higher than 2.23.7 (Debian 13)
+  DEVSCRIPTS_VER: 2.23.7
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+#
+## Daily
+#
+
+configure-gitlab:
+  stage: build
+  ## REF: https://hub.docker.com/_/debian/
+  image: 'docker.io/library/debian:testing-slim' # Need devscripts to be or higher than 2.23.7 (Debian 13)
+  before_script:
+    - apt-get --quiet update
+    - apt-get --yes --no-install-recommends install git ca-certificates
+    - git clone --depth=1 https://gitlab.com/kalilinux/packages/kali-menu.git ./kali-menu/
+    - mv -vf ./kali-menu/menu-icons/256x256/apps/kali-{searchsploit,exploitdb}.png
+    - ln -svf ./kali-menu/menu-icons/256x256/apps/kali-exploitdb{,-bin-sploits}.png
+    - ln -svf ./kali-menu/menu-icons/256x256/apps/kali-exploitdb{,-papers}.png
+    - echo "SALSA_TOKEN='${GITLAB_PACKAGES_GROUP_ACCESS_TOKEN}'" > ./.gitlab-token
+    - unset GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN GITLAB_PACKAGES_GROUP_ACCESS_TOKEN
+  script:
+    - apt-get --yes --no-install-recommends install devscripts=$DEVSCRIPTS_VER libgitlab-api-v4-perl
+    - (yes || true) | ./bin/${CI_JOB_NAME} --all 2>&1
+  after_script:
+    - rm -v ./.gitlab-token
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_JOB_NAME == $JOB
+      when: always
+  environment:
+    name: production
+
+
+branchprotection-gitlab:
+  stage: build
+  before_script:
+    - apt-get --quiet update
+    - echo "SALSA_TOKEN='${GITLAB_PACKAGES_GROUP_ACCESS_TOKEN}'" > ./.gitlab-token
+    - unset GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN GITLAB_PACKAGES_GROUP_ACCESS_TOKEN
+  script:
+    - apt-get --yes --no-install-recommends install devscripts libgitlab-api-v4-perl
+    - (yes || true) | ./bin/${CI_JOB_NAME} --all 2>&1
+  after_script:
+    - rm -v ./.gitlab-token
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_JOB_NAME == $JOB
+      when: always
+  environment:
+    name: production
+
+
+pages:
+  stage: build
+  before_script:
+    - apt-get --quiet update
+    - unset GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN GITLAB_PACKAGES_GROUP_ACCESS_TOKEN
+  script:
+    - apt-get --yes --no-install-recommends install curl ca-certificates jq
+    - ./bin/gitlab-overview 2>&1
+  after_script:
+    - mkdir -pv ./public/
+    - mv -v ./report.html ./public/index.html
+  artifacts:
+    paths:
+      - public
+    expire_in: 1 week
+  rules:
+#   - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_JOB_NAME == $JOB # Can't as GitLab pages, require "pages" for the name
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $JOB == "gitlab-overview"
+      when: always
+  environment:
+    name: production
+
+
+update-mrconfig:
+  stage: build
+  before_script:
+    - apt-get --quiet update
+    - apt-get --yes --no-install-recommends install git
+    - git remote rm origin
+    - git remote add origin "https://${GITLAB_USER_LOGIN}:${GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - git config --global user.name "${AUTHOR_NAME}"
+    - git config --global user.email "${AUTHOR_EMAIL}"
+    - unset GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN GITLAB_PACKAGES_GROUP_ACCESS_TOKEN
+  script:
+    - apt-get --yes --no-install-recommends install curl ca-certificates jq
+    - ./bin/${CI_JOB_NAME} 2>&1
+  after_script:
+    - git status
+    - git add mrconfig
+    - diff=$( git --no-pager diff --staged --ignore-all-space --unified=0 -G "^\[" mrconfig | grep "^[+-]\[" | grep -v "[DEFAULT]" | sed "s_[][]__g" | sort )
+    - new_count=$( echo "${diff}" | grep -c "^+" || true )
+    - archived_count=$( echo "${diff}" | grep -c "^-" || true )
+    - '[ "${new_count}" -gt "0" ] && sum="${new_count} new" || true'
+    - '[ "${archived_count}" -gt "0" ] && sum="$( [ -n "${sum}" ] && echo "${sum} / " )${archived_count} archived" || true'
+    - git commit -m "${sum} project(s)" || echo "Skipping commit"
+    - git push --push-option=ci.skip origin HEAD:${CI_COMMIT_REF_NAME} || echo "Skipping push"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_JOB_NAME == $JOB
+      when: always
+    #- if: $CI_COMMIT_REF_NAME == "$CI_DEFAULT_BRANCH"
+    #  when: manual
+  environment:
+    name: production
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+#
+## Monthly
+#
+
+build-gitlab:
+  stage: build
+  before_script:
+    - apt-get --quiet update
+    - echo "SALSA_TOKEN='${GITLAB_PACKAGES_GROUP_ACCESS_TOKEN}'" > ./.gitlab-token
+    - unset GITLAB_PACKAGING_PROJECT_ACCESS_TOKEN GITLAB_PACKAGES_GROUP_ACCESS_TOKEN
+  script:
+    - apt-get --yes --no-install-recommends install curl ca-certificates jq
+    - ./bin/${CI_JOB_NAME} --all 2>&1
+  after_script:
+    - rm -v ./.gitlab-token
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_JOB_NAME == $JOB
+      when: always
+  environment:
+    name: production

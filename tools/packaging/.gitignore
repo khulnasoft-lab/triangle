@@ -1,0 +1,5 @@
+## devscript's salsa token
+.gitlab-token
+
+## ./bin/gitlab-overview
+report.html

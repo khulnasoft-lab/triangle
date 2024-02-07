@@ -1,0 +1,22 @@
+title: "@project@ should get rid of Python 2 and use Python 3 only"
+description: |
+    Python 2.x will no longer be supported by their upstream developers in
+    2020. Thus Debian developers are actively removing Python 2 support in
+    Debian Testing with the goal of getting rid of Python 2 in Debian 11
+    (bullseye). We must do the same as our packages relying on Python 2
+    modules provided by Debian will start to break...
+    
+    @project@ depends on Python 2.x and needs to be reviewed. Applications
+    have to switch to Python 3. Python modules have to stop providing packages
+    for Python 2 (as soon as no other packages depend on the Python 2 version
+    of the module).
+
+    In any case, this work must be done in coordination with upstream. Tag the
+    issue with ~Forwarded once you have opened an upstream issue requesting this.
+
+    If the package can't be fixed currently, then tag the bug with ~Blocked and
+    add the issues of the blocking packages as “Related issues”.
+labels: 
+    - "Project::Py2Removal"
+links:
+    - https://gitlab.com/kalilinux/internal/roadmap/issues/27

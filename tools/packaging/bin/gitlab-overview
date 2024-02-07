@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+#
+# Create a HTML output of the overview of the current status of pipelines
+#   Output is: ./report.html
+#
+# Usage: $ ./bin/gitlab-overview
+#
+# Example:
+#   $ ./bin/gitlab-overview
+#
+# Requirements:
+#   # apt update && apt install --yes --no-install-recommends curl ca-certificates jq
+#
+
+## What (sub-)group to search
+groupname="kalilinux/packages"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+gitlab_curl() {
+  curl 2>/dev/null \
+      --silent \
+      --show-error \
+      --fail \
+      --retry 5 \
+      $@
+}
+
+## lookup_group <group_full_path>
+lookup_group() {
+  groupid=$( gitlab_curl \
+                 "https://gitlab.com/api/v4/groups/?search=${1}" \
+               | jq \
+                  --compact-output \
+                  --monochrome-output \
+                  --raw-output \
+                  '.[] | select (.full_path == "'${1}'") | .id' )
+
+  echo "[>]    Pulling: https://gitlab.com/${1} (${groupid})"
+
+  table="$( list_projects "${groupid}" )"
+  success=$( echo "${table}" | grep -c "color:green" )
+  failed=$( echo "${table}"  | grep -c "color:red" )
+  disabled=$( echo "${table}" | grep -c "color:grey" )
+  running=$( echo "${table}" | grep -c "color:salmon" )
+  unknown=$( echo "${table}" | grep -c "color:purple" )
+  echo "[i] success : ${success}"
+  echo "[i] failed  : ${failed}"
+  echo "[i] disabled: ${disabled}"
+  echo "[i] running : ${running}"
+  echo "[i] unknown : ${unknown}"
+  generate_html > "report.html"
+}
+
+## list_projects <groupid>
+list_projects() {
+  ## Reset page counter
+  page=0
+
+  ## Keep going forever
+  while true; do
+    ## Increase page counter
+    page=$((page+1))
+
+    ## Try and list all projects
+    request=$( list_projects_id "${1}" "${page}" )
+
+    ## If no more, quit
+    if [ -z "${request}" ]; then
+      break
+    fi
+
+    for projectid in ${request}; do
+      ## Feedback of where we are
+      project_name=$( lookup_full_path "${projectid}" )
+
+      ## Skip these repos
+      ## Removing WIP as its Kali's way of tracking packages which are Work In Progress queue
+      if [ "${project_name}" = "WIP" ]; then
+        continue
+      fi
+
+      ## Do any action for project
+      do_projects "${projectid}" "${project_name}"
+    done
+  done
+}
+
+## list_projects_id <group_id> <page> {<archived>}
+list_projects_id() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/groups/${1}/projects/?order_by=name&sort=asc&per_page=100&page=${2}&archived=${3:-false}" \
+    | jq \
+      --compact-output \
+      --monochrome-output \
+      --raw-output \
+      '.[] | .id'
+}
+
+## lookup_full_path <project_id>
+lookup_full_path() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/projects/${1}/" \
+    | jq \
+      --compact-output \
+      --monochrome-output \
+      --raw-output \
+      '.name'
+}
+
+## do_projects <project_id> <project_name>
+do_projects() {
+  json=$( gitlab_curl \
+              "https://gitlab.com/api/v4/projects/${1}/pipelines/" \
+            | jq '.[0]' )
+  status=$( jq --raw-output '.status' <<< "${json}" )
+  id=$( jq --raw-output '.id' <<< "${json}" )
+
+  if [ "${status}" = "failed" ]; then
+    ci=$( gitlab_curl \
+            "https://gitlab.com/kalilinux/packages/${2}/-/raw/kali/master/debian/kali-ci.yml" )
+    if [ "$?" = "0" ] && \
+       { [ "$( echo "${ci}" | grep -v "^#" -c )" = "0" ] ||
+        [ "$( echo "${ci}" | grep "SALSA_CI_IGNORED_BRANCHES" -c )" != "0" ]; }; then
+      status="disabled"
+    fi
+  fi
+
+  case "${status}" in
+    success)  colour="green";;
+    failed)   colour="red";;
+    disabled) colour="grey";;
+    running)  colour="salmon";;
+    *)        colour="purple";;
+  esac
+
+  if [ "${status}" = "disabled" ]; then
+      url="https://gitlab.com/kalilinux/packages/${2}/-/ci/editor"
+  elif [ -n "${id}" ] && \
+     [ "${id}" != "null" ]; then
+      url="https://gitlab.com/kalilinux/packages/${2}/-/pipelines/${id}"
+  else
+      url="https://gitlab.com/kalilinux/packages/${2}"
+  fi
+
+  echo "${2}: ${status}" >&2
+  cat <<EOF
+  <tr>
+    <td><a href="${url}" name="${2}">${2}</a></td>
+    <td><p style="color:${colour}">${status}</p></td>
+  </tr>
+EOF
+}
+
+## generate_html
+generate_html() {
+  cat<<EOF
+<html>
+<head>
+  <title>GitLab.com/KaliLinux/Packages (CI/CD Overview)</title>
+  <link rel="stylesheet" type="text/css" media="screen" href="https://cdn.datatables.net/1.12.1/css/jquery.dataTables.min.css" />
+  <script type="text/ecmascript" src="https://code.jquery.com/jquery-3.5.1.js"></script>
+  <script type="text/ecmascript" src="https://cdn.datatables.net/1.12.1/js/jquery.dataTables.min.js"></script>
+  <script>
+    \$(document).ready(function(){
+      \$('#pretty').DataTable({
+        order: [[1, 'asc']],
+        "lengthChange": false,
+        "paging": false,
+      });
+    });
+  </script>
+</head>
+<body>
+<ul>
+  <li>Success: ${success}</li>
+  <li>Failed: ${failed}</li>
+  <li>Disabled: ${disabled}</li>
+  <li>Running: ${running}</li>
+  <li>Unknown: ${unknown}</li>
+</ul>
+<p>Last Updated: <a href="https://gitlab.com/kalilinux/tools/packaging">$( date -u )</a></p>
+<table id="pretty" class="display" style="width:100%">
+  <thead>
+    <tr>
+      <th>Package</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+${table}
+  </tbody>
+</table>
+</body>
+</html>
+EOF
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Check for packages
+for cmd in jq curl; do
+  if ! command -v "${cmd}" 1>/dev/null 2>&1; then
+    echo "[-] Missing: ${cmd}"
+    exit 1
+  fi
+done
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Start
+lookup_group "${groupname}"
+
+echo "[+] Done"

@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+#
+# Using GitLab.com's CI, run the pre-created pipeline schedules task "Monthly Build" to build project(s) (aka package repositories)
+#   _Open MR one day for devscripts salsa to add support_
+#
+# Usage: $ ./bin/build-gitlab [--dry-run] [--all|<project1>] [<project2>]
+#   Without argument, will default to: '--all'
+#
+# Example:
+#   $ ./bin/build-gitlab
+#   $ APIKEY=xxx ./bin/build-gitlab --all
+#   $ SALSA_TOKEN=xxx ./bin/build-gitlab project --dry-run
+#   $ ./bin/build-gitlab project1 project2
+#
+# Requirements:
+#   # apt-get update && apt-get install --yes --no-install-recommends curl ca-certificates jq
+#   - GitLab API token: https://gitlab.com/-/profile/personal_access_tokens
+#
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Quit on error
+set -e
+#set -eo pipefail
+
+## DEBUG
+#set -x
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## GitLab API Key
+##   REF: https://gitlab.com/profile/personal_access_tokens
+##   Developer role + allowed to merge
+##   echo 'SALSA_TOKEN="12345678901234567890"' > ${APIFILE} # SALSA_TOKEN is due to Debian's devscripts's salsa.pl
+APIFILE="./.gitlab-token"
+
+## In seconds, how long to subtract from the runner max running limit
+buffer_time="480" # 480 = 8 minutes.   300 was too short when runner was 1 hour
+
+## What (sub-)group to search
+groupname="kalilinux/packages"
+
+## Command line arguments
+dry=false
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Pre formatted cURL request to GitLab SaaS API
+gitlab_curl() {
+  curl 2>/dev/null \
+    --silent \
+    --show-error \
+    --fail \
+    --retry 5 \
+    --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+    $@
+}
+
+json_output() {
+  ## --exit-status
+  jq \
+    --compact-output \
+    --monochrome-output \
+    --raw-output \
+    "$@"
+}
+
+
+## Look for group/sub-group's ID
+##   REF: https://docs.gitlab.com/ee/api/groups.html#search-for-group
+get_groups_id() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/groups/?search=$( echo "${1:-$groupname}" | sed 's_ _%20_g' )" \
+    | json_output \
+        '.[] | select (.web_url=="https://gitlab.com/groups/'"$( echo "${1:-$groupname}" | sed 's_ _%20_g' )"'") | .id'
+}
+
+## Get IDs for all (sub-)group's projects
+##   REF: https://docs.gitlab.com/ee/api/groups.html#list-a-groups-projects
+get_all_groups_id() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/groups/${1:-$groupid}/projects/?order_by=name&sort=asc&per_page=100&page=${2:-$page}&archived=false" \
+    | json_output \
+        '.[].id'
+}
+
+## Get project's ID
+##   REF: https://docs.gitlab.com/ee/api/projects.html#get-single-project
+get_projects_id() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/projects/$( echo "${1:-$groupname}" | sed 's_\/_%2F_g' )%2F${2:-$project}" \
+    | json_output \
+        '.id'
+}
+
+## Get project's name
+##   REF: https://docs.gitlab.com/ee/api/projects.html#get-single-project
+get_projects_name() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/projects/${1:-$projectid}" \
+    | json_output \
+        '.name'
+}
+
+## Get all pipeline schedules
+##   Opt'ing not for Pipeline triggers due to happening at the projects level, rather than sub-group
+##   REF: https://docs.gitlab.com/ee/api/pipeline_schedules.html
+get_projects_pipeline_schedules_id() {
+  gitlab_curl \
+      "https://gitlab.com/api/v4/projects/${1:-$projectid}/pipeline_schedules" \
+    | json_output \
+        '.[] | select (.description=="Monthly Build") | .id'
+}
+
+## Run pipeline schedule
+##   REF: https://docs.gitlab.com/ee/api/pipeline_schedules.html#run-a-scheduled-pipeline-immediately
+post_projects_pipeline_schedules_run_message() {
+  gitlab_curl \
+      --request POST \
+      "https://gitlab.com/api/v4/projects/${1:-$projectid}/pipeline_schedules/${2:-$schedules_id}/play" \
+    | json_output \
+        '.message'
+}
+
+### Edit pipeline schedule
+###   REF: https://docs.gitlab.com/ee/api/pipeline_schedules.html#edit-a-pipeline-schedule
+#put_projects_pipeline_schedules_edit_updated_at() {
+#  gitlab_curl \
+#      --request PUT \
+#      --form active="false" \
+#      "https://gitlab.com/api/v4/projects/${1}/pipeline_schedules/${2}" \
+#    | json_output \
+#        '.updated_at'
+#}
+
+### Create pipeline schedule
+###   REF: https://docs.gitlab.com/ee/api/pipeline_schedules.html#create-a-new-pipeline-schedule
+#post_projects_pipeline_schedules_created_at() {
+#  gitlab_curl \
+#      --request POST \
+#      --form description="Monthly Build" \
+#      --form ref="kali/master" \
+#      --form cron="0 0 L * *" \
+#      --form cron_timezone="UTC" \
+#      --form active="false" \
+#      "https://gitlab.com/api/v4/projects/${1}/pipeline_schedules" \
+#    | json_output \
+#        '.created_at'
+#}
+
+## Get all subgroups
+get_subgroups_id() {
+  ## Reset page counter
+  page=0
+
+  ## Reset
+  projects=""
+
+  ## Keep going forever
+  while true; do
+    ## Increase page counter
+    page=$((page+1))
+
+    ## Get all projects for that group's ID [page amount]
+    project=$( get_all_groups_id "${1:-$groupid}" "${page}" )
+
+    ## Check the response, if there isn't any more, quit
+    test -z "${project}" \
+      && break
+
+    projects=$( echo -e "${projects}\n${project}" | grep -v '^$' )
+  done
+  echo "${projects}"
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --all )     packages="--all";;
+    --dry-run ) dry=true ;;
+    *)          packages="${packages} $1";;
+  esac
+  shift
+done
+
+packages="${packages:---all}"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Check for API variable/file
+if [ -e "${APIFILE}" ]; then
+  echo "[i] Loading GitLab API Key (File: ${APIFILE})"
+  ## macOS doesn't like this...
+  source "${APIFILE}" \
+    || GITLAB_TOKEN=$( cat "${APIFILE}" )
+elif [ -n "${APIKEY}" ]; then
+  echo "[i] Found system variable: \$APIKEY"
+  GITLAB_TOKEN="${APIKEY}"
+fi
+## Using Debian devscript's salsa?
+if [ -n "${SALSA_TOKEN}" ]; then
+  echo "[i] Found system variable: \$SALSA_TOKEN"
+  GITLAB_TOKEN="${SALSA_TOKEN}"
+fi
+## Final check
+if [ -z "${GITLAB_TOKEN}" ]; then
+  echo "[-] ERROR: You are missing either: ${APIFILE} or a system variable: \$APIKEY" 1>&2
+  echo "    Visit: https://gitlab.com/profile/personal_access_tokens" 1>&2
+  echo "    Create a new key (which has API permission)" 1>&2
+  echo "    Afterwards: echo \"SALSA_TOKEN='XXX'\" > ${APIFILE}" 1>&2 # SALSA_TOKEN is due to Debian's devscripts's salsa.pl
+  exit 1
+fi
+
+## Check for packages
+for cmd in jq curl; do
+  if ! command -v "${cmd}" 1>/dev/null 2>&1; then # Alt: &>/dev/null
+    echo "[-] Missing: ${cmd}"
+    #install_package ${cmd}
+    exit 1
+  fi
+done
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+groupid=$( get_groups_id "${groupname}" )
+if [ -z "${groupid}" ]; then
+  echo "[-] ERROR: Unable to get group ID for: https://gitlab.com/${groupname}" 1>&2
+  echo "    Please check your API token access" 1>&2
+  exit 1
+fi
+echo "[i] Found (sub-)group: https://gitlab.com/${groupname} (ID: ${groupid})"
+
+if [ "${packages}" = "--all" ]; then
+  echo "[i] Fetching all projects"
+  packages=$( get_subgroups_id "${groupid}" )
+else
+  x=""
+  for package in ${packages}; do
+    tmp="$( get_projects_id "${groupname}" "${package}" )"
+    x="$( echo -e "${x}\n${tmp}" | grep -v '^$' )"
+  done
+  packages="${x}"
+fi
+
+## Summary is always nice
+packages_count=$( echo "${packages}" | wc -l )
+if [ -z "${packages}" ] \
+|| [ "${packages_count}" -lt 1 ]; then
+  echo "[-] ERROR: Unable to get any projects" 1>&2
+  exit 1
+fi
+echo "[i] Found ${packages_count} projects (https://gitlab.com/${groupname})"
+
+
+## REF: https://docs.gitlab.com/ee/ci/variables/predefined_variables.html
+if test -z "${CI_JOB_TIMEOUT}"; then
+  echo "[-] Missing \$CI_JOB_TIMEOUT" 1>&2
+  delay=0
+else
+  delay=$(( ( CI_JOB_TIMEOUT - buffer_time ) / packages_count ))
+  echo "[i] ($(( CI_JOB_TIMEOUT / 60 )) minutes - $(( buffer_time / 60 )) minutes buffer) / ${packages_count} projects = ${delay} seconds delay"
+fi
+
+## For every project
+i=0
+for projectid in ${packages}; do
+  i=$((i+1))
+  name=$( get_projects_name "${projectid}" )
+
+  schedules_id=$( get_projects_pipeline_schedules_id "${projectid}" )
+
+  test -z "${schedules_id}" \
+    && echo "[-] Missing 'Monthly Build' for ${name} (ID: ${projectid}) ~ https://gitlab.com/${groupname}/${name}/-/pipeline_schedules" 1>&2 \
+    && continue
+#        && message=$( post_projects_pipeline_schedules_created_at "${projectid}" ) \
+
+#      echo "[+] (${i}/${packages_count}) Editing 'Monthly Build' for ${name} (ID: ${projectid})"
+#      message=$( put_projects_pipeline_schedules_edit_updated_at "${projectid}" "${schedules_id}" )
+#      #echo "[i]   ${name} (ID: ${projectid}): ${message}"
+
+  echo "[+] (${i}/${packages_count}) Running 'Monthly Build' for ${name} (ID: ${projectid})"
+  if [ "${dry}" != "true" ]; then
+    message=$( post_projects_pipeline_schedules_run_message "${projectid}" "${schedules_id}" )
+    if [ "${message}" != "201 Created" ]; then
+      echo "[-]   Unexpected response for ${name} (ID: ${projectid}): ${message}" 1>&2
+    fi
+  fi
+
+  echo "[i]       Sleeping: ${delay} seconds"
+  if [ "${dry}" != "true" ]; then
+    sleep "${delay}"s
+  else
+    echo "[i]       DRY RUN"
+  fi
+done
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Done
+echo "[i] Done"
+#exit 0
