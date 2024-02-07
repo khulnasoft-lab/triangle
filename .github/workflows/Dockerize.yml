@@ -4,6 +4,12 @@ on:
   push:
     branches: [ master ]
 
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+  # github.repository as <account>/<repo>
+  IMAGE_NAME: ${{ github.repository }}
+  
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -46,13 +52,18 @@ jobs:
             ln -sf "$dir" "$DESTINATION/$symlink_name"
           done
 
+      - name: docker login
+        run: |
+          docker login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ${{ env.REGISTRY }}
       # Push images to registry (optional)
       - name: Push images to registry (optional)
         run: |
-          echo "Pushing images to registry (replace example commands with your registry)"
-          Replace 'khulnasoft-lab' with your registry login and tag each image
           for dir in $DIRS; do
-            docker login khulnasoft-lab
-            docker tag "$dir" khulnasoft-lab/$dir:latest
-            docker push khulnasoft-lab/$dir:latest
+          # Tag the image with the registry URL and tag
+          docker tag "$dir" "${{ env.REGISTRY }}/${{ github.actor }}/$dir:latest"
+        
+          # Push the image to the registry
+          docker push "${{ env.REGISTRY }}/${{ github.actor }}/$dir:latest"
           done
+        
+          echo "Successfully pushed images to registry: ${{ env.REGISTRY }}/${{ github.actor }}"
