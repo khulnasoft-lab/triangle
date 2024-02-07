@@ -1,0 +1,84 @@
+#! /usr/bin/perl
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+use strict;
+use warnings;
+
+use Time::HiRes qw(clock_gettime);
+use List::Util qw(max);
+use File::Copy;
+use IO::Select;
+
+my $DOT_EVERY_S = $ENV{DOT_EVERY_S} // 60;
+
+# The maximum output in the salsa environment is 4 MB, but we usually have some
+# output that is not covered by this script. Let's reserve 200 KB for that.
+my $MAX_STDOUT_BYTES = $ENV{MAX_STDOUT_BYTES} // ((4 * 1024 * 1024) - (200 * 1024));
+my $HEAD_TAIL_PROPORTION = $ENV{HEAD_TAIL_PROPORTION} // 0.8;
+my $OUTPUT_PATH = $ENV{WORKING_DIR} // '.';
+my $OUTPUT_FILENAME = $ENV{OUTPUT_FILENAME} // 'output.log';
+
+my $HEAD_BYTES = $MAX_STDOUT_BYTES * $HEAD_TAIL_PROPORTION;
+
+my $byte_counter = 0;
+my $bytes_shown = 0;
+my $bytes_written = 0;
+
+my $stdout_truncated = 0;
+my $last_time_dot = clock_gettime(&Time::HiRes::CLOCK_MONOTONIC);
+
+my $output_filepath = $OUTPUT_FILENAME =~ /^\// ? $OUTPUT_FILENAME : "$OUTPUT_PATH/$OUTPUT_FILENAME";
+
+my $separation_line = '#' x 120;
+
+open my $output_file, '>', $output_filepath;
+
+my $sel = IO::Select->new(*STDIN);
+while ($sel->can_read()) {
+    sysread(*STDIN, my $line, 64*1024) or last;
+    {
+	use bytes;
+	$byte_counter += length $line;
+    }
+    print $output_file $line;
+    if ($byte_counter <= $HEAD_BYTES) {
+	print STDOUT $line;
+	$bytes_shown = $byte_counter;
+	$bytes_written = $byte_counter;
+    } else {
+	if (!$stdout_truncated) {
+	    $stdout_truncated = 1;
+	    my $msg = "$separation_line\n# WARNING stdout has been truncated\n$separation_line\n";
+	    print STDOUT $msg;
+	    $bytes_written += length $msg;
+	}
+	my $now = clock_gettime(&Time::HiRes::CLOCK_MONOTONIC);
+	if ($now - $last_time_dot > $DOT_EVERY_S) {
+	    $last_time_dot = $now;
+	    print STDOUT '.';
+	    $bytes_written += 1;
+	}
+    }
+}
+
+close $output_file;
+
+if ($stdout_truncated) {
+    my $msg = "\n$separation_line\n# WARNING showing the log tail bytes\n$separation_line\n";
+    print STDOUT $msg;
+    $bytes_written += length $msg;
+    my $remaining = $MAX_STDOUT_BYTES - $bytes_written;
+
+    print STDERR "$bytes_written $bytes_shown $byte_counter";
+
+    open my $fh, '<', $output_filepath;
+    seek $fh, 0, 2;
+    seek $fh, max ((tell $fh) - $remaining, $bytes_shown, 0), 0;
+    STDOUT->flush();
+    copy $fh, *STDOUT;
+    close $fh;
+}

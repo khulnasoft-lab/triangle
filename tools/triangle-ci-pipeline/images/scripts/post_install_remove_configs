@@ -1,0 +1,19 @@
+#!/bin/sh
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+if [ "$PIUPARTS_TEST" = install -o "$PIUPARTS_TEST" = 'upgrade' -a "$PIUPARTS_PHASE" = 'upgrade' ]; then
+    if [ -d /etc-target ]; then
+        cd /etc-target
+        for f in $(find -mindepth 1); do
+            if [ -d "$f" ]; then
+                echo "Not removing dir /etc/$f"
+            else
+                rm -v "/etc/$f"
+            fi
+	done
+    fi
+fi

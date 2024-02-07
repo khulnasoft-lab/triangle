@@ -1,0 +1,16 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+RUN apt-get update && eatmydata apt-get install reprotest patch faketime \
+ locales-all disorderfs sudo xxd unzip diffoscope-minimal binutils-multiarch \
+ xz-utils fakeroot --no-install-recommends -y
+RUN rm -rf /var/lib/apt
+
+ENV PYTHONIOENCODING utf-8
+
+RUN useradd --gid 100 -m salsa-ci
+
+RUN su salsa-ci -c "reprotest --print-sudoers --variations=user_group.available+=salsa-ci,domain_host.use_sudo=1" | EDITOR=tee visudo -f /etc/sudoers.d/local-reprotest

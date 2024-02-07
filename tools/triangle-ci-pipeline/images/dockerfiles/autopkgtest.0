@@ -1,0 +1,29 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    eatmydata apt-get install -y \
+        dnsmasq-base debci libvirt-clients libvirt-daemon-system libvirt-daemon-system-sysv \
+        autopkgtest lxc wget && \
+    echo "# Workaround for missing kernel modules in Google Container-Optimized OS" && \
+    echo "# https://gitlab.com/gitlab-com/gl-infra/production/-/issues/5184#note_637383773" && \
+    update-alternatives --set iptables /usr/sbin/iptables-legacy && \
+    rm -rf /var/lib/apt && \
+    rm /usr/sbin/policy-rc.d && \
+    ln -s /bin/true /usr/sbin/policy-rc.d
+
+COPY files/autopkgtest/lxc-net /etc/default/lxc-net
+COPY files/autopkgtest/default.conf /etc/lxc/default.conf
+COPY files/autopkgtest/fstab /etc/fstab
+
+COPY patches/autopkgtest/debci-localtest.patch /tmp/debci-localtest.patch
+COPY patches/autopkgtest/environment.sh.patch /tmp/environment.sh.patch
+
+RUN patch /usr/share/debci/bin/debci-localtest /tmp/debci-localtest.patch
+RUN patch /usr/share/debci/lib/environment.sh /tmp/environment.sh.patch
+
+RUN useradd --gid 100 -m salsa-ci

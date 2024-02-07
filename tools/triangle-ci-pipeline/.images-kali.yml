@@ -1,0 +1,139 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+---
+include:
+  - .images-ci.yml
+
+variables:
+  VENDOR: kali
+
+.all-supported-releases: &all-supported-releases
+  - kali-last-release
+  - kali-rolling
+  - kali-dev
+  - kali-experimental
+
+# Images built on main branch
+images-prod:
+  stage: build
+  extends: .build_template
+  parallel:
+    matrix:
+      # Base image, all releases, all arches
+      - IMAGE_NAME: base
+        ARCH:
+          - i386
+          - amd64
+        RELEASE: *all-supported-releases
+      # All releases only amd64
+      - IMAGE_NAME:
+          - generic_tests
+        ARCH: amd64
+        RELEASE: *all-supported-releases
+      # All but experimental, only amd64
+      - IMAGE_NAME:
+          - lintian
+        ARCH: amd64
+        RELEASE:
+          - kali-rolling
+          - kali-dev
+      # Images in kali-dev only amd64
+      - IMAGE_NAME:
+          - aptly
+          - autopkgtest
+          - blhc
+          - gbp
+          - piuparts
+          - reprotest
+        ARCH: amd64
+        RELEASE: kali-dev
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    - if: $BUILD_ALL_IMAGES
+
+# ARM images built on main branch
+# We need a separate matrix. If we place the ARM build jobs on images-prod, we
+# exceed the maximum jobs limit by matrix (50)
+images-prod-arm:
+  stage: build
+  extends: .build_template
+  tags:
+    - arm64
+  parallel:
+    matrix:
+      # Base image, all releases, all arches
+      - IMAGE_NAME: base
+        ARCH:
+          - armel
+          - armhf
+          - arm64
+        RELEASE: *all-supported-releases
+      # Images in kali-dev only arm64
+      - IMAGE_NAME:
+          - autopkgtest
+          - blhc
+          - piuparts
+          - reprotest
+        ARCH: arm64
+        RELEASE: kali-dev
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+    - if: $BUILD_ALL_IMAGES
+
+# Images built on branches.
+# This is a subset of all the images, and are the only ones
+# built for branches != main.
+image-staging:
+  extends: .build_template
+  stage: build
+  parallel:
+    matrix:
+      - IMAGE_NAME:
+          - aptly
+          - autopkgtest
+          - base
+          - blhc
+          - gbp
+          - generic_tests
+          - lintian
+          - piuparts
+          - reprotest
+        ARCH: amd64
+        RELEASE: kali-dev
+  rules:
+    - if: $BUILD_ALL_IMAGES
+      when: never
+    - if: $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH
+
+image-staging-arm:
+  extends: .build_template
+  stage: build
+  tags:
+    - arm64
+  parallel:
+    matrix:
+      - IMAGE_NAME:
+          - autopkgtest
+          - blhc
+          - piuparts
+          - reprotest
+        ARCH: arm64
+        RELEASE: kali-dev
+      - IMAGE_NAME:
+          - base
+        ARCH:
+          - armel
+          - armhf
+          - arm64
+        RELEASE: kali-dev
+  # While there isn't an ARM shared runner available, let's allow these images
+  # to fail to don't block pipelines on MRs.
+  allow_failure: true
+  when: manual
+  rules:
+    - if: $BUILD_ALL_IMAGES
+      when: never
+    - if: $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH

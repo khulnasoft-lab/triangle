@@ -1,0 +1,26 @@
+#!/bin/sh
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+if [ "$PIUPARTS_TEST" = install -o "$PIUPARTS_TEST" = 'upgrade' -a "$PIUPARTS_PHASE" = 'upgrade' ]; then
+    if [ -d /etc-target ]; then
+        needs_aptupdate=
+        cd /etc-target
+        for f in $(find -mindepth 1); do
+            if [ -d "$f" ]; then
+                mkdir -vp "/etc/$f"
+            else
+                cp -av "$f" "/etc/$f"
+                if echo "$f" | grep -q 'sources.list' ; then
+                    needs_aptupdate=1
+                fi
+            fi
+	done
+        if [ -n "$needs_aptupdate" ]; then
+            apt-get update
+        fi
+    fi
+fi

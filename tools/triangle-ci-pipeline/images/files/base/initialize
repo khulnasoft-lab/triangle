@@ -1,0 +1,133 @@
+#!/bin/sh
+
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+VENDOR=$1
+RELEASE=$2
+
+set -xe
+
+fix_apt_sources_for_archived_releases() {
+    # Only for Debian's archived releases
+    if ! grep -E -q "^deb .* (jessie|stretch) " /etc/apt/sources.list; then
+	return
+    fi
+
+    # Update mirror url to point to archive.debian.org
+    sed -E -i "s/(deb|security)\.debian\.org/archive.debian.org/" \
+	/etc/apt/sources.list
+    if [ -e /etc/apt/sources.list.d/backports.list ]; then
+	sed -E -i "s/deb\.debian\.org/archive.debian.org/" \
+	    /etc/apt/sources.list.d/backports.list
+    fi
+
+    # Drop the updates suite, as it's not present in archive.d.o
+    sed -E -i '/^deb .* [a-z]+-updates /d' /etc/apt/sources.list
+}
+
+configure_apt() {
+    # Try to not fail with temporary network issues
+    echo "Acquire::Retries 5;" > /etc/apt/apt.conf.d/salsa-ci
+}
+
+clear_apt_sources() {
+    : > /etc/apt/sources.list
+}
+
+add_apt_sources() {
+    for rel in "$@"; do
+	echo "deb $MIRROR $rel ${COMPONENTS:-main}"
+    done >>/etc/apt/sources.list
+}
+
+apt_update() {
+    apt-get update "$@"
+}
+
+apt_install() {
+    apt-get install -y "$@"
+}
+
+apt_remove() {
+    apt-get remove -y "$@"
+}
+
+apt_dist_upgrade() {
+    apt-get -y -o dpkg::options::="--force-confnew" dist-upgrade
+}
+
+apt_clean() {
+    apt-get -y --purge autoremove
+    apt-get clean
+    rm -rf /var/lib/apt
+}
+
+install_apt_key() {
+    local URL=$1
+    apt_install curl ca-certificates
+    curl $URL >/etc/apt/trusted.gpg.d/local-$(basename $URL)
+    apt_remove --purge curl ca-certificates
+}
+
+remove_apt_key() {
+    rm -f /etc/apt/trusted.gpg.d/local-*
+}
+
+fix_vendor_symlink() {
+    # An upgrade of base-files does not update the
+    # /etc/dpkg/origins/default symlink... fix it ourselves.
+    if [ -e /etc/dpkg/origins/$VENDOR ] && \
+       [ $(readlink /etc/dpkg/origins/default) != "$VENDOR" ]; then
+	rm -f /etc/dpkg/origins/default
+	ln -sf $VENDOR /etc/dpkg/origins/default
+    fi
+}
+
+# Main code
+fix_apt_sources_for_archived_releases
+configure_apt
+apt_update
+apt_install eatmydata
+
+case "$VENDOR" in
+    debian)
+	# For plain Debian images, we don't have any further changes to
+	# do. We use the docker images as provided.
+	;;
+    *)
+	# Derivatives that don't have a good docker base image can use
+	# another docker image (like one of those provided by Debian) and
+	# add commands in this script to transform the base image into an
+	# image of their derivative (likely installing the appropriate APT
+	# keys, rewriting sources.list and dist-upgrading).
+	#
+	# As an example, Kali Linux images used to be initialized as such:
+	#
+	# ```
+	# install_apt_key https://archive.kali.org/archive-key.asc
+	# case $RELEASE in
+	#     kali-experimental|kali-bleeding-edge)
+	#         EXTRA_RELEASE="$RELEASE"
+	#         RELEASE="kali-dev"
+	#     ;;
+	# esac
+	# MIRROR=http://http.kali.org/kali
+	# COMPONENTS="main contrib non-free"
+	# clear_apt_sources
+	# add_apt_sources $RELEASE $EXTRA_RELEASE
+	# apt_update
+	# apt_install kali-archive-keyring
+	# remove_apt_key
+	# apt_dist_upgrade
+	# fix_vendor_symlink
+	# ```
+	;;
+esac
+
+apt_clean
+
+exit 0

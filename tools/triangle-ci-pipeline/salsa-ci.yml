@@ -1,0 +1,793 @@
+---
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+workflow:
+  rules:
+    # If the branch matches the ones it should not run on, ignore it
+    - if: $SALSA_CI_IGNORED_BRANCHES && $CI_COMMIT_REF_NAME =~ $SALSA_CI_IGNORED_BRANCHES
+      when: never
+    # Avoid running on gbp pq's patch-queue branches
+    - if: $CI_COMMIT_REF_NAME =~ /^patch-queue\/.*/
+      when: never
+    # Avoid duplicated pipelines, do not run detached pipelines
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    # Do not create a pipeline for tags unless SALSA_CI_ENABLE_PIPELINE_ON_TAGS is set
+    - if: $CI_COMMIT_TAG != null && $SALSA_CI_ENABLE_PIPELINE_ON_TAGS !~ /^(1|yes|true)$/
+      when: never
+    # Otherwise, if there's a debian/ folder, run
+    - exists:
+        - debian/**
+      when: always
+    # Fallback to not running
+    - when: never
+
+variables:
+  GIT_DEPTH: 1
+  DEBFULLNAME: "Salsa Pipeline"
+  DEBEMAIL: "salsa-pipeline@debian.org"
+  DEBIAN_FRONTEND: noninteractive
+  WORKING_DIR: $CI_PROJECT_DIR/debian/output
+  SOURCE_DIR: 'source_dir'
+  VENDOR: 'debian'
+  RELEASE:
+    description: "The Debian release to build for"
+    value: 'unstable'
+  # the architecture of the builder
+  BUILD_ARCH: 'amd64'
+  # only set this for cross-compiling
+  HOST_ARCH: ''
+  # Set to true to build the package twice
+  BUILD_TWICE: 'false'
+  SALSA_CI_MIRROR: 'http://deb.debian.org/debian'
+  SALSA_CI_COMPONENTS: 'main'
+  SALSA_CI_IMAGES: 'registry.salsa.debian.org/salsa-ci-team/pipeline'
+  SALSA_CI_IMAGES_APTLY: ${SALSA_CI_IMAGES}/aptly
+  SALSA_CI_IMAGES_AUTOPKGTEST: ${SALSA_CI_IMAGES}/autopkgtest
+  SALSA_CI_IMAGES_BASE: ${SALSA_CI_IMAGES}/base:${RELEASE}
+  SALSA_CI_IMAGES_BASE_I386: ${SALSA_CI_IMAGES}/i386/base:${RELEASE}
+  SALSA_CI_IMAGES_BASE_ARM32V5: ${SALSA_CI_IMAGES}/arm32v5/base:${RELEASE}
+  SALSA_CI_IMAGES_BASE_ARM32V7: ${SALSA_CI_IMAGES}/arm32v7/base:${RELEASE}
+  SALSA_CI_IMAGES_BASE_ARM64: ${SALSA_CI_IMAGES}/arm64v8/base:${RELEASE}
+  SALSA_CI_IMAGES_GENERIC_TESTS: ${SALSA_CI_IMAGES}/generic_tests:${RELEASE}
+  SALSA_CI_IMAGES_BLHC: ${SALSA_CI_IMAGES}/blhc:latest
+  SALSA_CI_IMAGES_GBP: ${SALSA_CI_IMAGES}/gbp:latest
+  SALSA_CI_IMAGES_LINTIAN: ${SALSA_CI_IMAGES}/lintian:latest
+  SALSA_CI_IMAGES_PIUPARTS: ${SALSA_CI_IMAGES}/piuparts:latest
+  SALSA_CI_IMAGES_REPROTEST: ${SALSA_CI_IMAGES}/reprotest:latest
+  SALSA_CI_ENABLE_ATOMIC_REPROTEST:
+    description: "Set to 1 to run one job per reprotest variation"
+    value: 0
+  SALSA_CI_REPROTEST_ENABLE_DIFFOSCOPE:
+    description: "Set this to 1 to produce an in-depth comparision of reprotest results"
+    value: 0
+  SALSA_CI_AUTOPKGTEST_LXC: https://salsa.debian.org/salsa-ci-team/autopkgtest-lxc
+  SALSA_CI_AUTOPKGTEST_ARGS:
+    description: "debci_autopkgtest_args is set to this variable and used by autopkgtest"
+    value: ''
+  SALSA_CI_BLHC_ARGS: ''
+  SALSA_CI_LINTIAN_SUPPRESS_TAGS: ""
+  SALSA_CI_LINTIAN_FAIL_WARNING: ""
+  SALSA_CI_LINTIAN_SHOW_OVERRIDES:
+    description: "To make Lintian show overridden tags, set this to 1"
+    value: 0
+  SALSA_CI_LINTIAN_ARGS:
+    description: "Arguments appended to lintian's generated arguments"
+    value: ''
+  SALSA_CI_PIUPARTS_ARGS: ''
+  SALSA_CI_PIUPARTS_PRE_INSTALL_SCRIPT: ''
+  SALSA_CI_PIUPARTS_POST_INSTALL_SCRIPT: ''
+  SALSA_CI_DPKG_BUILDPACKAGE_ARGS: ''
+  SALSA_CI_GBP_BUILDPACKAGE_ARGS: ''
+  DOCKER_TLS_CERTDIR: ""
+  SALSA_CI_DISABLE_APTLY: 1
+  # These three ARM-related build jobs are disabled by default while there
+  # isn't an ARM shared runner available
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ARMEL: 1
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ARMHF: 1
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ARM64: 1
+  SALSA_CI_DISABLE_BUILD_PACKAGE_TWICE:
+    description: "Set this to 0 to enable the test that builds the package twice in a row"
+    value: 1
+  SALSA_CI_DISABLE_MISSING_BREAKS: 1
+  SALSA_CI_DISABLE_RC_BUGS: 1
+  SALSA_CI_IGNORED_BRANCHES: ''
+  SALSA_CI_BUILD_TIMEOUT_ARGS: "2.75h"
+  SALSA_CI_DISABLE_BUILD_DBGSYM: 1
+  # Use fastzip to fix https://salsa.debian.org/salsa-ci-team/pipeline/-/issues/177
+  FF_USE_FASTZIP: 'true'
+  SALSA_CI_DISABLE_GBP_SETUP_GITATTRIBUTES: 0
+  # Backward compatibility
+  SALSA_CI_EXTRA_REPOSITORY: ${EXTRA_REPOSITORY}
+  SALSA_CI_EXTRA_REPOSITORY_KEY: ${EXTRA_REPOSITORY_KEY}
+  SALSA_CI_MAX_ARTIFACTS_SIZE: 256000  # 250MB
+  PYTHONIOENCODING: utf-8
+
+stages:
+  - provisioning
+  - build
+  - publish
+  - test
+
+.artifacts: &artifacts
+  name: "$CI_JOB_NAME:$CI_COMMIT_REF_NAME"
+  when: always
+  paths:
+    - ${WORKING_DIR}/
+
+.artifacts-default-expire: &artifacts-default-expire
+  artifacts:
+    <<: *artifacts
+
+.provisioning-extract-source: &provisioning-extract-source
+  stage: provisioning
+  image: $SALSA_CI_IMAGES_GBP
+  dependencies: []
+  extends:
+    - .artifacts-default-expire
+  variables:
+    DB_BUILD_PARAM: ${SALSA_CI_DPKG_BUILDPACKAGE_ARGS}
+  script:
+    - mkdir -vp ${WORKING_DIR}
+
+    - gbp pull --ignore-branch --pristine-tar --track-missing
+
+    # gbp setup-gitattributes needs to be called after gbp pull to avoid having
+    # staging commits (See #322)
+    - if echo "$SALSA_CI_DISABLE_GBP_SETUP_GITATTRIBUTES" | grep -qvE '^(1|yes|true)$'; then test -r .gitattributes && gbp setup-gitattributes ; fi
+
+    - apt-get update && eatmydata apt-get upgrade -y
+
+    - |
+      if find . -maxdepth 3 -wholename "*/debian/source/format" -exec cat {} \; | grep -q '3.0 (gitarchive)'
+      then
+        eatmydata apt-get install --no-install-recommends -y \
+          dpkg-source-gitarchive
+        { DSC=$(dpkg-source --build . | tee /dev/fd/3 | sed -n 's/.* \(\S*.dsc$\)/\1/p') ; } 3>&1
+        dpkg-source --extract --no-check ../$DSC ${WORKING_DIR}/${DSC%.dsc}
+      else
+        # Check if we can obtain the orig from the git branches
+
+        if ! gbp export-orig --tarball-dir=${WORKING_DIR}; then
+          # Fallback using origtargz
+          origtargz -dt
+          cp -v ../*orig*tar* ${WORKING_DIR}
+          SALSA_CI_GBP_BUILDPACKAGE_ARGS="--git-overlay ${SALSA_CI_GBP_BUILDPACKAGE_ARGS}"
+        fi
+
+        # As of 2020-09-09, gbp doesn't have a simpler method to extract the
+        # debianized source package. Use --git-pbuilder=`/bin/true` for the moment:
+        # https://bugs.debian.org/969952
+
+        gbp buildpackage \
+          --git-ignore-branch \
+          --git-ignore-new \
+          --git-no-create-orig \
+          --git-export-dir=${WORKING_DIR} \
+          --no-check-builddeps \
+          --git-builder=/bin/true \
+          --git-no-pbuilder \
+          --git-no-hooks \
+          --git-no-purge \
+          ${SALSA_CI_GBP_BUILDPACKAGE_ARGS} |& filter-output
+      fi
+
+    - ls -lh ${WORKING_DIR}
+    - cd ${WORKING_DIR}
+    - DEBIANIZED_SOURCE=$(find . -maxdepth 3 -wholename "*/debian/changelog" | sed -e 's%/\w*/\w*$%%')
+    - |
+      if [ ! "${DEBIANIZED_SOURCE}" ] ; then
+        echo "Error: No valid debianized source tree found."
+        exit 1
+      fi
+
+    - mv -v ${DEBIANIZED_SOURCE} ${SOURCE_DIR}
+
+    # Print size of artifacts
+    - du -sh
+
+    # Warn if job artifacts size limit exceeded
+    - |
+      if [ "$(du -s | cut -f1)" -gt ${SALSA_CI_MAX_ARTIFACTS_SIZE} ]; then
+        echo -e "\e[91m WARNING: job artifacts exceed the size limit of $(( ${SALSA_CI_MAX_ARTIFACTS_SIZE} / 1024 ))MB which may prevent the job to succeed.\e[39m"
+      fi
+
+.check-architecture-is-buildable: &check-architecture-is-buildable
+  - cd ${WORKING_DIR}/${SOURCE_DIR}
+  - |
+    if [ "${DB_BUILD_TYPE}" = all ]; then
+      pattern="all"
+    elif [ "${DB_BUILD_TYPE}" = any ]; then
+      if [ -n "${HOST_ARCH}" ]; then
+        pattern=".*(any|[^\!]${HOST_ARCH})"
+      else
+        pattern=".*(any|[^\!]$(dpkg --print-architecture))"
+      fi
+    else
+      echo "Error: Unexpected DB_BUILD_TYPE: ${DB_BUILD_TYPE}."
+      exit 1
+    fi
+  - |
+    if ! grep -qE "^Architecture:\s*${pattern}" debian/control; then
+      echo "###########################################"
+      echo "### No binary package matched: '${pattern}'."
+      echo "### Stopping ${CI_JOB_NAME} test."
+      echo "###########################################"
+      echo "You should disable this job via:"
+      echo "variables:"
+      if [ -n "${HOST_ARCH}" ]; then
+        echo "  SALSA_CI_DISABLE_CROSSBUILD_${HOST_ARCH^^}: '1'"
+      else
+        echo "  SALSA_CI_DISABLE_BUILD_PACKAGE_${DB_BUILD_TYPE^^}: '1'"
+      fi
+      exit 0
+    fi
+  - unset pattern
+  - cd ${OLDPWD}
+
+.build-before-script: &build-before-script
+  # salsa-ci-team/pipeline#107
+  - rm -vrf ${CI_PROJECT_DIR}/debian/output/.ccache
+
+  - mkdir -vp ${WORKING_DIR} ${CCACHE_WORK_DIR}
+
+  # https://salsa.debian.org/salsa-ci-team/pipeline/-/merge_requests/230
+  - rm -vrf ${CCACHE_TMP_DIR}
+
+  - mv -v ${CCACHE_WORK_DIR} ${CCACHE_TMP_DIR}
+  - add_extra_repository.sh -v -e "${SALSA_CI_EXTRA_REPOSITORY}" -k "${SALSA_CI_EXTRA_REPOSITORY_KEY}"
+
+.build-script: &build-script
+  - export CCACHE_DIR=${CCACHE_TMP_DIR}
+
+  # add target architecture if cross-compiling
+  - test -z "${HOST_ARCH}" || dpkg --add-architecture ${HOST_ARCH}
+
+  # Add deb-src entries
+  - |
+    if [ -f /etc/apt/sources.list ]; then
+      sed -n '/^deb\s/s//deb-src /p' /etc/apt/sources.list > /etc/apt/sources.list.d/deb-src.list
+    fi
+  - |
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then
+      sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources
+    fi
+
+  - apt-get update && eatmydata apt-get upgrade -y
+  - |
+    eatmydata apt-get install --no-install-recommends -y \
+      ccache \
+      fakeroot \
+      build-essential
+
+  # in case we are cross-building, install some more dependencies
+  # see #815172 why we need libc-dev and libstdc++-dev
+  - |
+    test -z "${HOST_ARCH}" || eatmydata apt-get satisfy --no-install-recommends -y \
+      libc-dev:${HOST_ARCH} \
+      libstdc++-dev:${HOST_ARCH} \
+      crossbuild-essential-${HOST_ARCH}
+  # when cross-compiling, add 'nocheck' to the DEB_BUILD_OPTIONS
+  - test -z "${HOST_ARCH}" || export DEB_BUILD_OPTIONS="nocheck ${DEB_BUILD_OPTIONS}"
+
+  # Disable autogeneration of dbgsym packages. (See #273)
+  - |
+    if echo "$SALSA_CI_DISABLE_BUILD_DBGSYM" | grep -qE '^(1|yes|true)$'; then
+      export DEB_BUILD_OPTIONS="noautodbgsym ${DEB_BUILD_OPTIONS}"
+    fi
+
+  # Enter source package dir
+  - cd ${WORKING_DIR}/${SOURCE_DIR}
+
+  # Install package build dependencies
+  # use plain "apt-get build-dep" so that we can install only packages for
+  # architecture indep or arch:any builds
+  - aptopts=""
+  - test "$DB_BUILD_TYPE" != "any" || aptopts="--arch-only"
+  - test "$DB_BUILD_TYPE" != "all" || aptopts="--indep-only"
+  # use aspcud solver for experimental and backports
+  - |
+    if [ "$RELEASE" = "experimental" ] || [[ "$RELEASE" =~ .*-backports$ ]]; then
+      eatmydata apt-get install --no-install-recommends -y aspcud apt-cudf
+      aptopts="$aptopts --solver aspcud -oAPT::Solver::Strict-Pinning=false -oAPT::Solver::aspcud::Preferences="
+      # minimize number of packages from experimental and backports
+      if [ "$RELEASE" = "experimental" ]; then
+        aptopts="$aptopts-count(solution,APT-Release:=/a=experimental/),"
+      elif [[ "$RELEASE" =~ .*-backports$ ]]; then
+        aptopts="$aptopts-count(solution,APT-Release:~/a=.*-backports/),"
+      fi
+      aptopts="$aptopts-removed,-changed,-new"
+     fi
+  - eatmydata apt-get build-dep ${HOST_ARCH:+--host-architecture ${HOST_ARCH} -Pcross,nocheck} --no-install-recommends -y $aptopts .
+
+  # If not disabled, bump package version
+  - |
+    if ! echo "$SALSA_CI_DISABLE_VERSION_BUMP" | grep -qE '^(1|yes|true)$'; then
+      DATESTAMP=$(date +"%Y%m%d")
+      sed -i -e "1 s/)/+salsaci+${DATESTAMP}+${CI_PIPELINE_IID})/" debian/changelog
+    fi
+
+  # Generate ccache links
+  - dpkg-reconfigure ccache
+  - PATH="/usr/lib/ccache/:${PATH}"
+
+  # Reset ccache stats
+  - ccache -z
+
+  # Create salsaci user and fix permissions
+  - useradd --create-home salsaci
+  - chown -R salsaci. ${WORKING_DIR} ${CCACHE_DIR}
+
+  # Define buildlog filename
+  - BUILD_LOGFILE_SOURCE=$(dpkg-parsechangelog -S Source)
+  - BUILD_LOGFILE_VERSION=$(dpkg-parsechangelog -S Version)
+  - BUILD_LOGFILE_VERSION=${BUILD_LOGFILE_VERSION#*:}
+  - BUILD_LOGFILE_ARCH=${HOST_ARCH:-${BUILD_ARCH}}
+  - BUILD_LOGFILE="${WORKING_DIR}/${BUILD_LOGFILE_SOURCE}_${BUILD_LOGFILE_VERSION}_${BUILD_LOGFILE_ARCH}.build"
+
+  # Define build command
+  - export BUILD_COMMAND="eatmydata dpkg-buildpackage ${HOST_ARCH:+--host-arch ${HOST_ARCH} -Pcross,nocheck} --build=${DB_BUILD_TYPE} ${DB_BUILD_PARAM}"
+  # Set architecture to correct in case it is i386 to avoid pitfalls (See #284)
+  - test "${BUILD_ARCH}" = "i386" && export BUILD_COMMAND="/usr/bin/setarch i686 ${BUILD_COMMAND}"
+
+  # Print the build environment
+  - printenv | sort
+
+  # Build package as user salsaci
+  - su salsaci -c "timeout ${SALSA_CI_BUILD_TIMEOUT_ARGS} ${BUILD_COMMAND} && if [ "${BUILD_TWICE}" = "true" ]; then ${BUILD_COMMAND}; fi" |& OUTPUT_FILENAME=${BUILD_LOGFILE} filter-output
+
+  # Restore PWD to ${WORKING_DIR}
+  - cd ${WORKING_DIR}
+  - rm -rf ${WORKING_DIR}/${SOURCE_DIR}
+
+  # Print ccache stats on job log
+  - ccache -s
+
+  # Print size of artifacts after build
+  - du -sh
+
+  # Warn if job artifacts size limit exceeded
+  - |
+    if [ "$(du -s | cut -f1)" -gt ${SALSA_CI_MAX_ARTIFACTS_SIZE} ]; then
+      echo -e "\e[91m WARNING: job artifacts exceed the size limit of $(( ${SALSA_CI_MAX_ARTIFACTS_SIZE} / 1024 ))MB which may prevent the job to succeed.\e[39m"
+    fi
+
+.build-definition: &build-definition
+  stage: build
+  image: $SALSA_CI_IMAGES_BASE
+  cache:
+    key: "build-${BUILD_ARCH}_${HOST_ARCH}"
+    paths:
+      - .ccache
+  variables:
+    CCACHE_TMP_DIR: ${CI_PROJECT_DIR}/../.${CI_PROJECT_NAME}.ccache
+    CCACHE_WORK_DIR: ${CI_PROJECT_DIR}/.ccache
+    DB_BUILD_PARAM: ${SALSA_CI_DPKG_BUILDPACKAGE_ARGS}
+    DB_BUILD_TYPE: full
+  script:
+    - *build-before-script
+    - *build-script
+    - mv -v ${CCACHE_TMP_DIR} ${CCACHE_WORK_DIR}
+  dependencies:
+    - extract-source
+
+.build-package: &build-package
+  extends:
+    - .build-definition
+    - .artifacts-default-expire
+
+.build-package-i386: &build-package-i386
+  extends:
+    - .build-package
+  image: $SALSA_CI_IMAGES_BASE_I386
+  variables:
+    BUILD_ARCH: 'i386'
+  rules:
+    - if: $SALSA_CI_DISABLE_BUILD_PACKAGE_I386 !~ /^(1|yes|true)$/
+
+.build-package-armel: &build-package-armel
+  extends:
+    - .build-package
+  image: $SALSA_CI_IMAGES_BASE_ARM32V5
+  variables:
+    BUILD_ARCH: 'armel'
+  tags:
+    - arm64
+  rules:
+    - if: $SALSA_CI_DISABLE_BUILD_PACKAGE_ARMEL !~ /^(1|yes|true)$/
+
+.build-package-armhf: &build-package-armhf
+  extends:
+    - .build-package
+  image: $SALSA_CI_IMAGES_BASE_ARM32V7
+  variables:
+    BUILD_ARCH: 'armhf'
+  tags:
+    - arm64
+  rules:
+    - if: $SALSA_CI_DISABLE_BUILD_PACKAGE_ARMHF !~ /^(1|yes|true)$/
+
+.build-package-arm64: &build-package-arm64
+  extends:
+    - .build-package
+  image: $SALSA_CI_IMAGES_BASE_ARM64
+  variables:
+    BUILD_ARCH: 'arm64'
+  tags:
+    - arm64
+  rules:
+    - if: $SALSA_CI_DISABLE_BUILD_PACKAGE_ARM64 !~ /^(1|yes|true)$/
+
+.build-source-only: &build-source-only
+  extends:
+    - .build-definition
+    - .artifacts-default-expire
+  cache:
+    paths: []  # Override cache for source builds
+  variables:
+    DB_BUILD_TYPE: source
+    SALSA_CI_DISABLE_VERSION_BUMP: 1
+
+.test-build-package: &test-build-package
+  stage: test
+  extends:
+    - .build-definition
+  script:
+    - *check-architecture-is-buildable
+    - *build-before-script
+    - *build-script
+    - mv -v ${CCACHE_TMP_DIR} ${CCACHE_WORK_DIR}
+
+.test-build-package-any: &test-build-package-any
+  extends:
+    - .test-build-package
+  variables:
+    DB_BUILD_TYPE: any
+  rules:
+    - if: $SALSA_CI_ENABLE_BUILD_PACKAGE_ANY =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_BUILD_PACKAGE_ANY !~ /^(1|yes|true)$/
+
+.test-build-package-all: &test-build-package-all
+  extends:
+    - .test-build-package
+  variables:
+    DB_BUILD_TYPE: all
+  rules:
+    - if: $SALSA_CI_ENABLE_BUILD_PACKAGE_ALL =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_BUILD_PACKAGE_ALL !~ /^(1|yes|true)$/
+
+.test-build-package-twice: &test-build-package-twice
+  extends:
+    - .build-definition
+  stage: test
+  script:
+    - *build-before-script
+    - LOCAL_ARCH=$(dpkg --print-architecture)
+    - *build-script
+    - mv -v ${CCACHE_TMP_DIR} ${CCACHE_WORK_DIR}
+  variables:
+    BUILD_TWICE: 'true'
+  rules:
+    - if: $SALSA_CI_ENABLE_BUILD_PACKAGE_TWICE =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_BUILD_PACKAGE_TWICE !~ /^(1|yes|true)$/
+
+.test-crossbuild-package-arm64: &test-crossbuild-package-arm64
+  extends:
+    - .test-build-package
+  variables:
+    DB_BUILD_TYPE: any
+    HOST_ARCH: arm64
+  rules:
+    - if: $BUILD_ARCH == $HOST_ARCH
+      when: never
+    - if: $SALSA_CI_ENABLE_CROSSBUILD_ARM64 =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_CROSSBUILD_ARM64 !~ /^(1|yes|true)$/
+
+.test-autopkgtest: &test-autopkgtest
+  stage: test
+  image: $SALSA_CI_IMAGES_AUTOPKGTEST
+  rules:
+    - if: $SALSA_CI_ENABLE_AUTOPKGTEST =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_AUTOPKGTEST !~ /^(1|yes|true)$/
+  script:
+    - LOCAL_ARCH="$(dpkg --print-architecture)"
+    - LXC_JOB_NAME="${RELEASE}"
+    - test "${LOCAL_ARCH}" = "amd64" || LXC_JOB_NAME="${RELEASE}_${LOCAL_ARCH}"
+    - wget --progress=dot:giga ${SALSA_CI_AUTOPKGTEST_LXC}/-/jobs/artifacts/master/raw/artifacts/lxc-${LOCAL_ARCH}.tar?job=${LXC_JOB_NAME} -O lxc.tar
+    - mkdir -vp ${SCI_LXC_PATH} && tar xf lxc.tar -C ${SCI_LXC_PATH}
+    - sed -i "/lxc.rootfs.path/ s@dir:.*/lxc/@dir:${SCI_LXC_PATH}/@" ${SCI_LXC_PATH}/autopkgtest-${RELEASE}-${LOCAL_ARCH}/config
+    - |
+      cat >/etc/lxc/lxc.conf <<EOT
+      lxc.lxcpath=${SCI_LXC_PATH}
+      EOT
+    - add_extra_repository.sh -v -e "${SALSA_CI_EXTRA_REPOSITORY}" -k "${SALSA_CI_EXTRA_REPOSITORY_KEY}"
+      -t "${SCI_LXC_PATH}/autopkgtest-${RELEASE}-${LOCAL_ARCH}/rootfs/etc"
+    - umount -R /sys/fs/cgroup && mount -a
+    - /etc/init.d/lxc-net start
+    - /etc/init.d/lxc start
+    - chown -R debci. ${WORKING_DIR}
+    - export debci_autopkgtest_args="${SALSA_CI_AUTOPKGTEST_ARGS}"
+    # su's -P is required to have ownership over /dev/stderr, /dev/stdout and
+    # /dev/stdin, and then fix #256
+    - su -P debci -c "debci localtest $WORKING_DIR/*.changes --suite ${RELEASE} --logs-dir ${DEBCI_LOG_PATH}" || ( ret=$?; [ $ret -eq 8 ] || [ $ret -eq 2 ] )
+    - rm -vrf ${WORKING_DIR}/debci/binaries
+  variables:
+    GIT_STRATEGY: fetch
+    SCI_LXC_PATH: ${CI_PROJECT_DIR}/lxc
+    DEBCI_LOG_PATH: ${WORKING_DIR}/debci
+  artifacts:
+    when: always
+    paths:
+      - ${WORKING_DIR}/debci
+  needs:
+    - job: build
+      artifacts: true
+
+.test-blhc: &test-blhc
+  stage: test
+  image: $SALSA_CI_IMAGES_BLHC
+  rules:
+    - if: $SALSA_CI_ENABLE_BLHC =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_BLHC !~ /^(1|yes|true)$/
+  script:
+    - blhc --debian --line-numbers --color ${SALSA_CI_BLHC_ARGS} ${WORKING_DIR}/*.build || [ $? -eq 1 ]
+  variables:
+    GIT_STRATEGY: none
+  needs:
+    - job: build
+      artifacts: true
+
+.test-lintian: &test-lintian
+  stage: test
+  image: $SALSA_CI_IMAGES_LINTIAN
+  rules:
+    - if: $SALSA_CI_ENABLE_LINTIAN =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_LINTIAN !~ /^(1|yes|true)$/
+  script:
+    - lintian --version
+    - |
+      if lintian --fail-on error --allow-root > /dev/null ; then
+        if echo "${SALSA_CI_LINTIAN_FAIL_WARNING}" | grep -qE '^(1|yes|true)$'; then
+          SALSA_CI_LINTIAN_FAIL_ARG='--fail-on error --fail-on warning'
+        else
+          SALSA_CI_LINTIAN_FAIL_ARG='--fail-on error'
+        fi
+      else
+        SALSA_CI_LINTIAN_FAIL_ARG=''
+      fi
+      if echo "${SALSA_CI_LINTIAN_SHOW_OVERRIDES}" | grep -qE '^(1|yes|true)$'; then
+        SALSA_CI_LINTIAN_SHOW_OVERRIDES_ARG='--show-overrides'
+      fi
+    - lintian --suppress-tags "${SALSA_CI_LINTIAN_SUPPRESS_TAGS}" --display-info --pedantic ${SALSA_CI_LINTIAN_FAIL_ARG} --allow-root ${SALSA_CI_LINTIAN_SHOW_OVERRIDES_ARG} ${SALSA_CI_LINTIAN_ARGS} ${WORKING_DIR}/*.changes | tee lintian.output || ECODE=$?
+    - |
+        if echo "${SALSA_CI_LINTIAN_FAIL_WARNING}" | grep -qE '^(1|yes|true)$'; then
+          grep -q '^W: ' lintian.output && ECODE=3
+        fi
+    - lintian2junit.py --lintian-file lintian.output > ${WORKING_DIR}/lintian.xml
+    # 🗂️ Generate HTML report
+    - lintian --suppress-tags "${SALSA_CI_LINTIAN_SUPPRESS_TAGS}"  --display-info --pedantic --allow-root ${SALSA_CI_LINTIAN_SHOW_OVERRIDES_ARG} --exp-output format=html ${SALSA_CI_LINTIAN_ARGS} ${WORKING_DIR}/*.changes > ${WORKING_DIR}/lintian.html || true
+    - exit ${ECODE-0}
+  variables:
+    GIT_STRATEGY: none
+  artifacts:
+    reports:
+      junit: ${WORKING_DIR}/lintian.xml
+    paths:
+      - ${WORKING_DIR}/lintian.html
+    when: always
+  needs:
+    - job: build
+      artifacts: true
+
+.test-reprotest: &test-reprotest
+  stage: test
+  image: $SALSA_CI_IMAGES_REPROTEST
+  rules:
+    - if: $SALSA_CI_ENABLE_REPROTEST =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_REPROTEST !~ /^(1|yes|true)$/
+  artifacts:
+    name: "$CI_JOB_NAME:$CI_COMMIT_REF_NAME"
+    paths:
+      - $WORKING_DIR/reprotest
+      - $WORKING_DIR/reprotest.log
+    when: always
+  script:
+    - add_extra_repository.sh -v -e "${SALSA_CI_EXTRA_REPOSITORY}" -k "${SALSA_CI_EXTRA_REPOSITORY_KEY}"
+    - apt-get update && eatmydata apt-get upgrade -y
+    - eatmydata apt-get build-dep -y ${WORKING_DIR}/*.dsc
+    - |
+      if ! echo "${SALSA_CI_REPROTEST_ENABLE_DIFFOSCOPE}" | grep -q -E '^(1|yes|true)$'; then
+        SALSA_CI_REPROTEST_ARGS="${SALSA_CI_REPROTEST_ARGS} --no-diffoscope"
+      fi
+    - |
+      su salsa-ci -c "timeout ${SALSA_CI_BUILD_TIMEOUT_ARGS} reprotest \
+        --min-cpus $(nproc --all) \
+        --store-dir ${WORKING_DIR}/reprotest \
+        --verbosity=2  \
+        --vary=-time \
+        --variations=user_group.available+=salsa-ci,domain_host.use_sudo=1 \
+        ${SALSA_CI_REPROTEST_ARGS} \
+        ${WORKING_DIR}/*.dsc -- null" |& OUTPUT_FILENAME=reprotest.log filter-output
+  variables:
+    GIT_STRATEGY: none
+  needs:
+    - job: build
+      artifacts: true
+
+# Only for compat with the old way of enabling diffoscope
+.test-reprotest-diffoscope: &test-reprotest-diffoscope
+  extends:
+    - .test-reprotest
+  variables:
+    SALSA_CI_REPROTEST_ENABLE_DIFFOSCOPE: '1'
+
+.test-piuparts: &test-piuparts
+  stage: test
+  image: $SALSA_CI_IMAGES_PIUPARTS
+  rules:
+    - if: $SALSA_CI_ENABLE_PIUPARTS =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_PIUPARTS !~ /^(1|yes|true)$/
+  services:
+    - docker:20.10.12-dind
+  script:
+    - CHROOT_PATH="/tmp/debian-chroot"
+    - CONTAINER_ID=$(docker run --rm -d "${SALSA_CI_IMAGES_BASE}" sleep infinity)
+    - docker exec ${CONTAINER_ID} bash -c "apt-get update && apt-get upgrade -y"
+    - docker exec ${CONTAINER_ID} bash -c "apt-get install eatmydata -y"
+    - mkdir -vp ${CHROOT_PATH}
+    - docker export ${CONTAINER_ID} | tar -C ${CHROOT_PATH} -xf -
+    - mknod -m 666 ${CHROOT_PATH}/dev/urandom c 1 9
+    - mkdir -vp /srv/local-apt-repository/ && cp -av ${WORKING_DIR}/*.deb /srv/local-apt-repository/ && /usr/lib/local-apt-repository/rebuild
+    - mkdir -vp ${CHROOT_PATH}/etc-target/apt/sources.list.d ${CHROOT_PATH}/etc-target/apt/preferences.d
+    - cp -Hv /etc/apt/sources.list.d/local-apt-repository.list ${CHROOT_PATH}/etc-target/apt/sources.list.d/
+    - cp -aTLv /etc/apt/preferences.d  ${CHROOT_PATH}/etc-target/apt/preferences.d
+    - cp -aTLv /srv/local-apt-repository ${CHROOT_PATH}/srv/local-apt-repository
+    - cp -aTLv /var/lib/local-apt-repository/ ${CHROOT_PATH}/var/lib/local-apt-repository/
+    - test -n "${SALSA_CI_PIUPARTS_PRE_INSTALL_SCRIPT}" && cp -aTLv "${SALSA_CI_PIUPARTS_PRE_INSTALL_SCRIPT}" /etc/piuparts/scripts/pre_install_salsa_ci && chmod 755 /etc/piuparts/scripts/pre_install_salsa_ci
+    - test -n "${SALSA_CI_PIUPARTS_POST_INSTALL_SCRIPT}" && cp -aTLv "${SALSA_CI_PIUPARTS_POST_INSTALL_SCRIPT}" /etc/piuparts/scripts/post_install_salsa_ci && chmod 755 /etc/piuparts/scripts/post_install_salsa_ci
+    - add_extra_repository.sh -v -e "${SALSA_CI_EXTRA_REPOSITORY}"
+      -k "${SALSA_CI_EXTRA_REPOSITORY_KEY}" -t "${CHROOT_PATH}/etc-target"
+    - sed  '/127.0.0.1/s/localhost/pipeline.salsa.debian.org localhost/' /etc/hosts > ${CHROOT_PATH}/etc/hosts
+    - PIUPARTS_DISTRIBUTION_ARG="--distribution $RELEASE"
+    - |
+      if [ "$VENDOR" = "debian" ]; then \
+        CODENAME=$(wget -O - ${SALSA_CI_MIRROR}/dists/${RELEASE}/Release | awk "/^Codename:/ { print \$2 }" | sed -e "s/-backports//"); \
+        PIUPARTS_DISTRIBUTION_ARG="--distribution ${CODENAME}"; \
+      fi
+    - |
+      (for PACKAGE in $(ls ${WORKING_DIR}/*.deb); do
+        piuparts --mirror "${SALSA_CI_MIRROR} ${SALSA_CI_COMPONENTS}" ${SALSA_CI_PIUPARTS_ARGS} --scriptsdir /etc/piuparts/scripts --allow-database --warn-on-leftovers-after-purge --hard-link -e ${CHROOT_PATH} ${PIUPARTS_DISTRIBUTION_ARG} ${PACKAGE}
+      done) | filter-output
+  variables:
+    # To make the repository available in this job,
+    # so SALSA_CI_PIUPARTS_{PRE,POST}_INSTALL_SCRIPT
+    # can refer to committed scripts
+    GIT_STRATEGY: fetch
+  needs:
+    - job: build
+      artifacts: true
+
+.test-rc-bugs: &test-rc-bugs
+  stage: test
+  image: $SALSA_CI_IMAGES_GENERIC_TESTS
+  rules:
+    - if: $SALSA_CI_ENABLE_RC_BUGS =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_RC_BUGS !~ /^(1|yes|true)$/
+  script:
+    - check_rc_bugs.py -v -o ${WORKING_DIR}/rc_bugs.xml --changes-file ${WORKING_DIR}/*.changes
+  artifacts:
+    reports:
+      junit: ${WORKING_DIR}/rc_bugs.xml
+  variables:
+    GIT_STRATEGY: none
+  needs:
+    - job: build
+      artifacts: true
+
+.test-missing-breaks: &test-missing-breaks
+  stage: test
+  image: $SALSA_CI_IMAGES_GENERIC_TESTS
+  rules:
+    - if: $SALSA_CI_ENABLE_MISSING_BREAKS =~ /^(1|yes|true)$/
+    - if: $SALSA_CI_DISABLE_ALL_TESTS =~ /^(1|yes|true)$/
+      when: never
+    - if: $SALSA_CI_DISABLE_MISSING_BREAKS !~ /^(1|yes|true)$/
+  script:
+    - apt-get update && eatmydata apt-get upgrade -y
+    - check_for_missing_breaks_replaces.py -o ${WORKING_DIR}/missing_breaks.xml --changes-file ${WORKING_DIR}/*.changes
+  artifacts:
+    reports:
+      junit: ${WORKING_DIR}/missing_breaks.xml
+  variables:
+    GIT_STRATEGY: none
+  needs:
+    - job: build
+      artifacts: true
+
+.publish-aptly: &publish-aptly
+  stage: publish
+  image: $SALSA_CI_IMAGES_APTLY
+  variables:
+    GIT_STRATEGY: none
+    REPO_PATH: 'aptly'
+    PUBKEY_FILENAME: 'public-key.asc'
+  rules:
+    - if: $SALSA_CI_DISABLE_APTLY !~ /^(1|yes|true)$/
+  script:
+    - export REPO_URL="${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/raw/${REPO_PATH}"
+    - export REPO_PUBKEY_URL="${REPO_URL}/${PUBKEY_FILENAME}"
+    - export GPG_TTY=$(tty)
+    - export PUBKEY_BINARY_FILENAME=${PUBKEY_FILENAME%.asc}.gpg
+    - aptly repo create -distribution ${RELEASE} -component main ${CI_PROJECT_NAME}
+    # this can deal with multiple $WORKING_DIR* directories,
+    # Thus, if one `needs:` more than just the build job, one can then insert additional packages.
+    # One just has to make sure that each such job adds a differing suffix
+    - for d in "${WORKING_DIR}"*; do aptly repo add ${CI_PROJECT_NAME} "$d"; done
+    - aptly repo show -with-packages ${CI_PROJECT_NAME}
+    # accept miss-spelled var for backwards-compatibility (see https://salsa.debian.org/salsa-ci-team/pipeline/issues/114)
+    - export SALSA_CI_APTLY_GPG_PASSPHRASE="${SALSA_CI_APTLY_GPG_PASSPHRASE:=${SALSA_CI_APTLY_GPG_PASSPHRASE}}"
+    - |
+      if [ -n "${SALSA_CI_APTLY_GPG_KEY}" ]; then \
+        echo "${SALSA_CI_APTLY_GPG_KEY}" \
+        | gpg --import ${SALSA_CI_APTLY_GPG_PASSPHRASE:+ --batch --passphrase "${SALSA_CI_APTLY_GPG_PASSPHRASE}"}; \
+      else \
+        export SALSA_CI_APTLY_GPG_PASSPHRASE="${SALSA_CI_APTLY_GPG_PASSPHRASE:-${CI_PROJECT_NAME}:${CI_PIPELINE_ID}}"; \
+        rngd -r /dev/urandom; \
+        printf "Key-Type: RSA\nKey-Length: 2048\nName-Real: ${DEBFULLNAME}\nName-Email: ${DEBEMAIL}\nExpire-Date: 0\nPassphrase: ${SALSA_CI_APTLY_GPG_PASSPHRASE}\n%%commit" | \
+        gpg --batch --gen-key; \
+      fi
+      gpg --export --armor > "${PUBKEY_FILENAME}"
+      gpg --export > "${PUBKEY_BINARY_FILENAME}"
+    - export INLINE_ARMORED_PUBKEY="$(sed 's/^$/./;s/^/ /' "${PUBKEY_FILENAME}")"
+    - |
+      ARCHITECTURES=$(aptly repo show -with-packages ${CI_PROJECT_NAME} | \
+        awk 'BEGIN {FS="_"} /^Packages:/ {x=NR} (x && NR>x) {print $3}' | \
+        sort -u | tr '\n' ','); \
+        ARCHITECTURES=${ARCHITECTURES%,}; \
+        aptly publish repo -batch \
+        ${ARCHITECTURES:+ -architectures=${ARCHITECTURES}} \
+        ${SALSA_CI_APTLY_GPG_PASSPHRASE:+ -passphrase="${SALSA_CI_APTLY_GPG_PASSPHRASE}"} \
+        ${CI_PROJECT_NAME}
+    - |
+      mkdir -vp "${CI_PROJECT_DIR}/${REPO_PATH}"
+        cp -av ~/.aptly/public/. "${CI_PROJECT_DIR}/${REPO_PATH}"
+        mv "${PUBKEY_FILENAME}" "${CI_PROJECT_DIR}/${REPO_PATH}/${PUBKEY_FILENAME}"
+        mv "${PUBKEY_BINARY_FILENAME}" "${CI_PROJECT_DIR}/${REPO_PATH}/${PUBKEY_BINARY_FILENAME}"
+        envsubst < /etc/aptly/index.html.template > "${CI_PROJECT_DIR}/${REPO_PATH}/index.html"
+    - |
+      printf "APTLY_REPO=%s\nAPTLY_REPO_KEY_BASE64=%s\n" \
+        "${CI_SERVER_URL}/${CI_PROJECT_PATH}/-/jobs/${CI_JOB_ID}/artifacts/raw/${REPO_PATH}/ ${RELEASE} main" \
+        "$(base64 -w0 ${CI_PROJECT_DIR}/${REPO_PATH}/${PUBKEY_BINARY_FILENAME})" \
+        >> aptly.env
+  artifacts:
+    paths:
+      - ${CI_PROJECT_DIR}/${REPO_PATH}
+    reports:
+      dotenv: aptly.env
+  needs:
+    - job: build
+      artifacts: true

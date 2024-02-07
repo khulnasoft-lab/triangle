@@ -1,0 +1,153 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+---
+workflow:
+  rules:
+    # Avoid duplicated pipelines, do not run detached pipelines.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - when: always
+
+variables:
+  DOCKER_TLS_CERTDIR: ""
+  SALSA_CI_DISABLE_APTLY: "false"
+
+stages:
+  - images
+  - test
+  - clean
+
+images:
+  stage: images
+  trigger:
+    include:
+      - local: .images-kali.yml
+    strategy: depend
+
+check license + contributor:
+  stage: test
+  image: ${CI_REGISTRY_IMAGE}/base:${IMAGE_VERSION}
+  dependencies: []
+  variables:
+    RELEASE: kali-dev
+  before_script:
+    - apt-get update && apt-get upgrade -y
+    - apt-get install -y licensecheck
+  script:
+    - PROBLEMS=0
+    # check files without any license
+    - BAD_FILES=$(licensecheck -r . | grep -Ev '(images/files)|(images/patches)|(README.md)|(CONTRIBUTING.md)|(CONTRIBUTORS)'| grep UNKNOWN) || true
+    - |
+      [ -z "$BAD_FILES" ] || \
+      (echo "ERROR: Missing license statement in the following files:"; \
+      echo "$BAD_FILES"; exit 1) || \
+      PROBLEMS=$(($PROBLEMS + 1))
+    # check email or name is in the list of contributors
+    - |
+      grep -q "${GITLAB_USER_EMAIL}" CONTRIBUTORS || \
+      grep -q "${GITLAB_USER_NAME}" CONTRIBUTORS || \
+      (echo "ERROR: ${GITLAB_USER_NAME} <${GITLAB_USER_EMAIL}> missing in the CONTRIBUTORS file"; exit 1) || \
+      PROBLEMS=$(($PROBLEMS + 1))
+    - exit $PROBLEMS
+  rules:
+    - if: $CI_SERVER_URL != "https://salsa.debian.org"
+      when: never
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_VERSION: latest
+    - if: $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_VERSION: ${RELEASE}_${CI_COMMIT_REF_NAME}
+
+check gpg signature:
+  stage: test
+  image: ${CI_REGISTRY_IMAGE}/base:${IMAGE_VERSION}
+  dependencies: []
+  variables:
+    RELEASE: kali-dev
+    IMAGE_VERSION: ${RELEASE}_${CI_COMMIT_REF_NAME}
+  before_script:
+    - apt-get update && apt-get upgrade -y
+    - apt-get install -y --no-install-recommends debian-keyring dirmngr git gpg gpg-agent ca-certificates
+  script:
+    - mkdir -p ${HOME}/.gnupg
+    - chmod 600 ${HOME}/.gnupg
+    - echo "keyring /usr/share/keyrings/debian-keyring.gpg" >> ${HOME}/.gnupg/gpg.conf
+    - echo "keyring /usr/share/keyrings/debian-maintainers.gpg" >> ${HOME}/.gnupg/gpg.conf
+    - echo "keyring /usr/share/keyrings/debian-nonupload.gpg" >> ${HOME}/.gnupg/gpg.conf
+    - echo "keyserver hkps://keyserver.ubuntu.com:443" >> ${HOME}/.gnupg/gpg.conf
+    - echo "keyserver hkps://keys.openpgp.org:443" >> ${HOME}/.gnupg/gpg.conf
+    - echo "auto-key-retrieve" >> ${HOME}/.gnupg/gpg.conf
+    - SIGNING_KEY=$(git log --show-signature HEAD~1..HEAD | grep "using.*key" | awk '{print $NF}')
+    - gpg --recv-key $SIGNING_KEY
+    - GIT_TRACE2=true git verify-commit HEAD --raw --verbose || (echo "please sign your commit" && exit 1)
+  rules:
+    - if: $CI_SERVER_URL != "https://salsa.debian.org"
+      when: never
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+
+check yaml lint:
+  stage: test
+  image: ${CI_REGISTRY_IMAGE}/base:${IMAGE_VERSION}
+  dependencies: []
+  variables:
+    RELEASE: kali-dev
+  before_script:
+    - apt-get update && apt-get upgrade -y
+    - apt-get install -y yamllint
+  script:
+    - yamllint .
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_VERSION: latest
+    - if: $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_VERSION: ${RELEASE}_${CI_COMMIT_REF_NAME}
+
+test-pipeline:
+  variables:
+    RELEASE: kali-dev
+  trigger:
+    include:
+      - local: .pipeline-test.yml
+    strategy: depend
+  rules:
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_VERSION: latest
+    - if: $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_VERSION: ${RELEASE}_${CI_COMMIT_REF_NAME}
+  parallel:
+    matrix:
+      - PROJECT_URL: https://gitlab.com/kalilinux/packages/unix-privesc-check
+
+clean images:
+  stage: clean
+  image: docker:latest
+  services:
+    - docker:20.10.12-dind
+  variables:
+    IMAGES_LIST: 'aptly autopkgtest base armel/base armhf/base arm64/base i386/base blhc gbp piuparts reprotest lintian generic_tests'
+    RELEASE: kali-dev
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - wget -O /usr/bin/reg https://github.com/genuinetools/reg/releases/download/v0.13.0/reg-linux-amd64
+    - chmod +x /usr/bin/reg
+  script:
+    - |
+      # If not master, use REF as staging tag.
+      if ! [ "${CI_COMMIT_REF_NAME}" = "master" ]; then
+        STAGING_TAG="_${CI_COMMIT_REF_NAME}"
+      fi
+    - |
+      for IMAGE in $IMAGES_LIST; do
+        reg --registry ${CI_REGISTRY} rm ${CI_PROJECT_PATH}/${IMAGE}:${RELEASE}${STAGING_TAG} || true
+      done
+  rules:
+    - if: $CI_COMMIT_REF_NAME != $CI_DEFAULT_BRANCH && $SALSA_CI_PERSIST_IMAGES !~ /^(1|yes|true)$/
+      when: always

@@ -1,0 +1,32 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+# install dependencies for check rc bugs
+RUN \
+    set -eux; \
+    apt-get update; \
+    apt-get upgrade -y; \
+    if [ -n "$(apt-cache search --names-only ^python3-junit\\.xml\$)" ]; then \
+        eatmydata apt-get -y install python3-debianbts python3-junit.xml; \
+    fi; \
+    :
+
+# install dependencies for check for missing replaces
+RUN \
+    set -eux; \
+    apt-get update; \
+    apt-get upgrade -y; \
+    eatmydata apt-get install -y apt-file python3-debian; \
+    if [ -z "$(apt-cache search --names-only ^python3-junit\\.xml\$)" ]; then \
+        eatmydata apt-get -y install python3-pip; \
+        pip3 install junit-xml; \
+    else \
+        eatmydata apt-get -y install python3-junit.xml; \
+    fi; \
+    :
+
+COPY scripts/check_rc_bugs.py /usr/local/bin/
+COPY scripts/check_for_missing_breaks_replaces.py /usr/local/bin/

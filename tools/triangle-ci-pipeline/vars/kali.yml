@@ -1,0 +1,28 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+# Required variables overrides to run the tests on Kali
+variables:
+  VENDOR: 'kali'
+  RELEASE: 'kali-dev'
+  SALSA_CI_MIRROR: 'http://http.kali.org/kali'
+  SALSA_CI_COMPONENTS: 'main contrib non-free non-free-firmware'
+  SALSA_CI_IMAGES: 'registry.gitlab.com/kalilinux/tools/kali-ci-pipeline'
+  SALSA_CI_IMAGES_BASE_ARM32V5: ${SALSA_CI_IMAGES}/armel/base:${RELEASE}
+  SALSA_CI_IMAGES_BASE_ARM32V7: ${SALSA_CI_IMAGES}/armhf/base:${RELEASE}
+  SALSA_CI_IMAGES_BASE_ARM64: ${SALSA_CI_IMAGES}/arm64/base:${RELEASE}
+  SALSA_CI_AUTOPKGTEST_LXC: 'https://gitlab.com/kalilinux/tools/kali-ci-autopkgtest-lxc'
+  SALSA_CI_PIUPARTS_ARGS: '--defaults debian --keyring /usr/share/keyrings/kali-archive-keyring.gpg'
+  # We don't crossbuild Kali packages
+  SALSA_CI_DISABLE_CROSSBUILD_ARM64: 1
+  # This is already the default, why redefine it here?
+  SALSA_CI_BUILD_TIMEOUT_ARGS: "2.75h" # REF: https://gitlab.com/kalilinux/tools/packaging/-/blob/main/salsa.d/packages.conf
+  # Overwrite default ARM behaviour (as we have our own runners)
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ARMEL: 0
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ARMHF: 0
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ARM64: 0
+  # gitlab.com maximum artifacts size is higher than salsa.debian.org
+  SALSA_CI_MAX_ARTIFACTS_SIZE: 1024000 # 1000 MiB

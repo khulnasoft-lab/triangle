@@ -1,0 +1,18 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+RUN \
+set -eux; \
+apt-get update --quiet; \
+apt-get upgrade --assume-yes --quiet; \
+eatmydata apt-get install --no-install-recommends --assume-yes \
+    aptly \
+    gettext-base \
+    rng-tools \
+    ; \
+rm -rf /var/lib/apt
+
+COPY files/aptly/index.html.template /etc/aptly/index.html.template

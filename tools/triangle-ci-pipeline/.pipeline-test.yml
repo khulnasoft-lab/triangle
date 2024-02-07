@@ -1,0 +1,115 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+---
+include:
+  - salsa-ci.yml
+  - pipeline-jobs.yml
+  - vars/kali.yml
+
+workflow:
+  rules:
+    # Override rules defined in salsa-ci.yml, as we don't
+    # have a debian/ folder, but it will be created later.
+    - when: always
+
+variables:
+  SALSA_CI_IMAGES_APTLY: ${CI_REGISTRY_IMAGE}/aptly:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_AUTOPKGTEST: ${CI_REGISTRY_IMAGE}/autopkgtest:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_BASE: ${CI_REGISTRY_IMAGE}/base:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_GENERIC_TESTS: ${CI_REGISTRY_IMAGE}/generic_tests:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_BLHC: ${CI_REGISTRY_IMAGE}/blhc:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_GBP: ${CI_REGISTRY_IMAGE}/gbp:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_LINTIAN: ${CI_REGISTRY_IMAGE}/lintian:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_PIUPARTS: ${CI_REGISTRY_IMAGE}/piuparts:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_REPROTEST: ${CI_REGISTRY_IMAGE}/reprotest:${IMAGE_VERSION}
+  SALSA_CI_IMAGES_BASE_I386: ${CI_REGISTRY_IMAGE}/i386/base:${IMAGE_VERSION}
+
+extract-source:
+  extends: .provisioning-extract-source
+  before_script:
+    - test -d repo_test || ( apt-get update && apt-get upgrade -y && apt-get install -y git; git clone "${PROJECT_URL}" repo_test)
+    - cd repo_test
+
+aptly with passphrase:
+  extends: .publish-aptly
+  variables:
+    SALSA_CI_APTLY_GPG_PASSPHRASE: 'h0w d0 y0u turn th1s 0n'
+
+aptly with predefined key:
+  extends: .publish-aptly
+  variables:
+    SALSA_CI_APTLY_GPG_KEY: |
+      -----BEGIN PGP PRIVATE KEY BLOCK-----
+
+      lQOYBF8471EBCADHnnUSyOlAVHcvB3iU54bPBZ2R4QBHQlfOKRGmd76+KCXVjlSl
+      g8aP4Dz34VLCj4d5D9WhqOuNvI2c19KJcsyT0v/XopU8r2CI4iXUb0nlEgvlwvLJ
+      Z7ORbNEajglX7yF78KPRE9BmPWvGrb+pX24xMMEbcYr0j7Eby/6SLgOYBbGMzafL
+      9ArlVZkkUDw+q+Ui1rOVOOkRUHbk5EEPIE8e1Kmfzxu+fdVRsOiYc2c+CsAfqAkw
+      wUEK3eYO92hUPhDhx3y3XS/HCKsOfcSAgX93Nr/9t4pGMIEQWQJFV5o6LrKTd1zX
+      hznrGQW1K6ocKSfdOJi4FQnFAMFjO1ejC249ABEBAAEAB/9NbswfI0xHpfwthApk
+      SINkntsGkW8YNUX2NLwiBOU6wjwa4QE4yysk+GjuBruhuSdl8Jx//xSQgIm2Q4np
+      w1xUI08XCHw3dBhQQNlH1Hunnh57W+nt8ooXaUybrmk1cQ9eEnSZT8RRRJYgFZn5
+      S4llD3J5AMxUHcEn9TOk5LCEMVEpTeL1jeQptK0mEucbrhjHLtU7FYjyIJNRqEI6
+      3e2XMYnVyd2jxbaH0BOlvQmNYw+LUBCB7E9XOYMityZwZQs+BnbPJc6wvz+UIJ1k
+      +36KsoVw4Z29B429SQzDc1dJIoSOyQ/ppTxySrSjRuHHXQjHX1EKOCBwgIo9FtBd
+      PuEJBADPPu4CfG9baCI60EbgqKX++mYXH6pwvGZVojcoBAQd+D4Oo86G6Lwyb8KO
+      G1jgj0ByWVleJy1TiIbAED7xc8+Cqr1JZycnDI1zUSfbcWzUaCb9KlwxzmwrRYUG
+      yFUcENGoPKtGNg00QXIOM/3IedQcMbW+BJ6+cLAV9QQCTjfPawQA9pQ2U2ge8N4g
+      TrEp3zxOo+eNd7mAVNkt039XmsEIkiyUI1GuVdIJeQQkk20qe/Gg/Lo1AvLkVY6o
+      VEtuW4f2Pht4mYclmfkJcYHrqAfhvSSFJ+oauufkxeIfQ+1PPTSF4zGfXtiHJwoc
+      g8zezQxr9qjpgQCBkOgnO/BkB5HwavcEAN39P8VoN8qNt0Q16PZUcrhQMR9Yu5KK
+      tYutFoVMoaXZjv78MJQGqxExQygw6wBl0KlVwUP7YnsgqzMVN/3T3eFCTs4itbL2
+      SVTZARM8wwo3eauVzle/Bof3CF5FJW76U97XGMs6YqrI8zXqL5+2xniTawYpOg4b
+      KuZnTi09kSBNK0i0KlNhbHNhIFBpcGVsaW5lIDxzYWxzYS1waXBlbGluZUBkZWJp
+      YW4ub3JnPokBTgQTAQoAOBYhBB+0eSbwf/HWoVFzaD2jqb19lQAFBQJfOO9RAhsv
+      BQsJCAcCBhUKCQgLAgQWAgMBAh4BAheAAAoJED2jqb19lQAFCsQH/1+nHcI+m//U
+      p9HPmyB3yYI/RYcabVoA+7KlYlubAo7rxl41TD3DGkXImY6oVPMOSW+er085cEJo
+      x+eUMb3b5PronBqVPbr6Bcb3jF8zMOBhPSforsIWwAYnY7lI2r8PSx7moLQQarrY
+      bkOGPrggjRyORsQLHUjutpkVMVCcfdI6xXO+77CjBdPDRH6SnFXw+W1rvoMeSwTM
+      Wb0C31H11wJfSDnS/QzEsG6TQS6V/bnH3FkdDaOfFCe+/+xJtRL3cTyr5AwYlQLt
+      5KQPHZi6PpEluT4dByJsvTHbRseePJzaBlP6/NkV4aVjEfSEPvxZpIn7tnSGmSQ6
+      ruObPgVuhRQ=
+      =/b8a
+      -----END PGP PRIVATE KEY BLOCK-----
+
+aptly with predefined key and passphrase:
+  extends: .publish-aptly
+  variables:
+    SALSA_CI_APTLY_GPG_PASSPHRASE: 'h0w d0 y0u turn th1s 0n'
+    SALSA_CI_APTLY_GPG_KEY: |
+      -----BEGIN PGP PRIVATE KEY BLOCK-----
+
+      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
+      URUB8ys=
+      =LMMb
+      -----END PGP PRIVATE KEY BLOCK-----

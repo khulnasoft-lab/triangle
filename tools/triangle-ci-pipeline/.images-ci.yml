@@ -1,0 +1,89 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+---
+stages:
+  - build
+
+.build_template: &build_template
+  stage: images
+  image:
+    name: gcr.io/kaniko-project/executor:v1.14.0-debug
+    entrypoint: [""]
+  before_script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+  retry:
+    max: 1
+    when:
+      - script_failure
+  script:
+    - cd images
+    - |
+      # If not master, use REF as staging tag.
+      if ! [ "${CI_COMMIT_REF_NAME}" = "master" ]; then
+        STAGING_TAG="_${CI_COMMIT_REF_NAME}"
+      fi
+    - |
+      # Set BASE_IMAGE, unless already set.
+      if [ -z "${BASE_IMAGE}" ]; then
+        case "${VENDOR}" in
+          kali) BASE_IMAGE=kalilinux/${RELEASE}:${ARCH} ;;
+          *) BASE_IMAGE=${ARCH}/${VENDOR}:${RELEASE} ;;
+        esac
+      else
+        BASE_IMAGE=${ARCH}/${BASE_IMAGE}
+      fi
+    - IMAGE_NAME_WITH_TAG=${IMAGE_NAME}:${RELEASE}${STAGING_TAG}
+    - |
+      # Non-amd64 images have their own namespace
+      if [ "${ARCH}" != "amd64" ]; then
+        ARCH_NAMESPACE=${ARCH}/
+      fi
+    - IMAGE_URL=${CI_REGISTRY_IMAGE}/${ARCH_NAMESPACE}${IMAGE_NAME_WITH_TAG}
+    - |
+      # Render Dockerfile.
+      cat $(ls -v dockerfiles/base.*) > Dockerfile
+      if ! [ "${IMAGE_NAME}" = "base" ]; then
+        cat $(ls -v dockerfiles/$IMAGE_NAME.*) >> Dockerfile
+      fi
+    - |
+      # Check if aliases are needed.
+      if [ "${CI_COMMIT_REF_NAME}" = "master" ]; then
+        case "$VENDOR" in
+          debian)
+            case "$RELEASE" in
+              stretch*)
+                MIRROR=${DEBIAN_ARCHIVE_MIRROR}
+              ;;
+              *)
+                MIRROR=${DEBIAN_MIRROR}
+              ;;
+            esac
+            ALIASES=$(wget -O - ${MIRROR}/dists/${RELEASE}/Release | awk "/^Suite:/ { if (\$2 !~ /${RELEASE}/) print \$2 }")
+            test "$ALIASES" != 'unstable' || ALIASES="${ALIASES} latest"
+          ;;
+          kali)
+            test "$RELEASE" != "kali-dev" || ALIASES="${ALIASES} latest"
+          ;;
+        esac
+      fi
+    - |
+      # Define the image aliases.
+      ALIASES_DESTINATION=''
+      for ALIAS in $ALIASES; do
+        ALIAS_IMAGE=${CI_REGISTRY_IMAGE}/${ARCH_NAMESPACE}${IMAGE_NAME}:${ALIAS}${STAGING_TAG}
+        ALIASES_DESTINATION="${ALIASES_DESTINATION} --destination ${ALIAS_IMAGE}"
+      done
+    - |
+      # Build !
+      /kaniko/executor --context ${PWD} \
+        --dockerfile ${PWD}/Dockerfile \
+        --build-arg VENDOR=${VENDOR} \
+        --build-arg RELEASE=${RELEASE} \
+        --build-arg BASE_IMAGE=${BASE_IMAGE} \
+        --destination ${IMAGE_URL} \
+        ${ALIASES_DESTINATION} \
+        --cache=false  # Do not use cache. See 7788516d

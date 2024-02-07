@@ -1,0 +1,24 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG VENDOR
+ARG RELEASE
+
+ENV DEBIAN_FRONTEND noninteractive
+
+COPY ./scripts/add_extra_repository.sh /usr/local/bin/
+RUN chmod 755 /usr/local/bin/add_extra_repository.sh
+
+COPY ./scripts/filter-output /usr/local/bin/
+RUN chmod 755 /usr/local/bin/filter-output
+
+COPY files/base/initialize /initialize
+RUN /initialize $VENDOR $RELEASE && rm -f /initialize
+
+RUN apt-get update && apt-get upgrade -y && apt-get install -y apt ca-certificates && rm -rf /var/lib/apt

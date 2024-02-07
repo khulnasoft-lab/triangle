@@ -1,0 +1,88 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+extract-source:
+  extends: .provisioning-extract-source
+
+build:
+  extends: .build-package
+
+build i386:
+  extends: .build-package-i386
+
+build armel:
+  extends: .build-package-armel
+
+build armhf:
+  extends: .build-package-armhf
+
+build arm64:
+  extends: .build-package-arm64
+
+build source:
+  extends: .build-source-only
+
+test-build-any:
+  extends: .test-build-package-any
+
+test-build-all:
+  extends: .test-build-package-all
+
+test-build-twice:
+  extends: .test-build-package-twice
+
+test-crossbuild-arm64:
+  extends: .test-crossbuild-package-arm64
+  allow_failure: true
+
+reprotest:
+  extends: .test-reprotest
+
+lintian:
+  extends: .test-lintian
+
+autopkgtest:
+  extends: .test-autopkgtest
+
+blhc:
+  extends: .test-blhc
+
+piuparts:
+  extends: .test-piuparts
+
+missing-breaks:
+  extends: .test-missing-breaks
+
+rc-bugs:
+  extends: .test-rc-bugs
+
+aptly:
+  extends: .publish-aptly
+
+## Atomic Reprotest jobs
+atomic-reprotest:
+  extends: .test-reprotest
+  rules:
+    - if: $SALSA_CI_ENABLE_ATOMIC_REPROTEST =~ /^(1|yes|true)$/
+  variables:
+    SALSA_CI_REPROTEST_ARGS: '--variations=-all --variations=${VARIATION}'
+  parallel:
+    matrix:
+      - VARIATION:
+          - aslr
+          - build_path
+          - domain_host
+          - environment
+          - exec_path
+          - fileordering
+          - home
+          - kernel
+          - locales
+          - num_cpus
+          - time
+          - timezone
+          - umask
+          - user_group

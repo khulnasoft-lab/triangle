@@ -1,0 +1,26 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+# Add deb-src entries
+RUN if [ -f /etc/apt/sources.list ]; then \
+      sed -n '/^deb\s/s//deb-src /p' /etc/apt/sources.list > /etc/apt/sources.list.d/deb-src.list; \
+    fi
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+RUN apt-get update && apt-get upgrade -y && eatmydata apt-get install --no-install-recommends -y \
+    git-buildpackage \
+    pristine-tar \
+    curl \
+    unzip \
+    && rm -rf /var/lib/apt
+
+# Just for backward compatibility, because current pipeline does gbp pull for no reasons... Remove it after merge
+RUN apt-get update && apt-get upgrade -y && eatmydata apt-get install --no-install-recommends -y ca-certificates fakeroot && rm -rf /var/lib/apt
+
+# Support for docker:dind
+ENV DOCKER_HOST=tcp://docker:2375

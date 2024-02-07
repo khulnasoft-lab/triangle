@@ -1,0 +1,23 @@
+# Copyright salsa-ci-team and others
+# SPDX-License-Identifier: FSFAP
+# Copying and distribution of this file, with or without modification, are
+# permitted in any medium without royalty provided the copyright notice and
+# this notice are preserved. This file is offered as-is, without any warranty.
+
+RUN \
+set -eux; \
+printf 'Package: *\nPin: release a=%s\nPin-Priority: 900\n' "$RELEASE" \
+  | tee /etc/apt/preferences.d/salsa-ci; \
+apt-get update; \
+apt-get upgrade -y; \
+eatmydata apt-get -y install git lintian; \
+if [ -z "$(apt-cache search --names-only ^python3-junit\\.xml\$)" ]; then \
+    eatmydata apt-get -y install python3-pip; \
+    pip3 install junit-xml; \
+else \
+    eatmydata apt-get -y install python3-junit.xml; \
+fi; \
+rm -rf /var/lib/apt; \
+:
+
+COPY scripts/lintian2junit.py /usr/local/bin

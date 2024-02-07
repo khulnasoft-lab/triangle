@@ -1,0 +1,32 @@
+<html>
+<head><title>apt source for ${CI_PROJECT_PATH}</title></head>
+<body>
+<ul>
+<li>branch <a href="${CI_PROJECT_URL}/commits/${CI_COMMIT_REF_NAME}">${CI_COMMIT_REF_NAME}</a></li>
+<li>commit <a href="${CI_PROJECT_URL}/commit/${CI_COMMIT_SHA}">${CI_COMMIT_SHA}</a></li>
+<li>pipeline <a href="${CI_PIPELINE_URL}">${CI_PIPELINE_URL}</a></li>
+<li>job <a href="${CI_JOB_URL}">${CI_JOB_URL}</a></li>
+</ul>
+You can configure a system to make use of this repository, thus:
+<br/>
+
+<pre>$ sudo tee /etc/apt/sources.list.d/salsa-${CI_PROJECT_PATH_SLUG}-${CI_JOB_ID}.sources &gt;/dev/null &lt;&lt;EOF
+Types: deb
+URIs: ${REPO_URL}
+Suites: ${RELEASE}
+Components: main
+Signed-By:
+${INLINE_ARMORED_PUBKEY}
+EOF</pre><br/>
+
+Alternatively, using the old one-line format, thus:
+<br/>
+<pre>$ wget -O - <a href="${REPO_PUBKEY_URL}">${REPO_PUBKEY_URL}</a> | sudo tee /etc/apt/keyrings/salsa-${CI_PROJECT_PATH_SLUG}-${CI_JOB_ID}.asc &gt;/dev/null
+$ sudo tee /etc/apt/sources.list.d/salsa-${CI_PROJECT_PATH_SLUG}-${CI_JOB_ID}.list &gt;/dev/null &lt;&lt;EOF
+deb [signed-by=/etc/apt/keyrings/salsa-${CI_PROJECT_PATH_SLUG}-${CI_JOB_ID}.asc] <a href="${REPO_URL}">${REPO_URL}</a> ${RELEASE} main
+# deb-src [signed-by=/etc/apt/keyrings/salsa-${CI_PROJECT_PATH_SLUG}-${CI_JOB_ID}.asc] <a href="${REPO_URL}">${REPO_URL}</a> ${RELEASE} main
+EOF</pre><br/>
+
+<a href="${CI_JOB_URL}/artifacts/browse">Browse all files</a>
+</body>
+</html>
