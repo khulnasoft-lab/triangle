@@ -50,9 +50,9 @@ jobs:
       - name: Push images to registry (optional)
         run: |
           echo "Pushing images to registry (replace example commands with your registry)"
-          Replace 'your_registry' with your registry login and tag each image
+          Replace 'khulnasoft-lab' with your registry login and tag each image
           for dir in $DIRS; do
-            docker login your_registry
-            docker tag "$dir" your_registry/$dir:latest
-            docker push your_registry/$dir:latest
+            docker login khulnasoft-lab
+            docker tag "$dir" khulnasoft-lab/$dir:latest
+            docker push khulnasoft-lab/$dir:latest
           done
