@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Dependencies for this script:
+#   apt update && apt install --yes --no-install-recommends curl ca-certificates jq
+
+set -eo pipefail
+set -e
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## lookup_group <group_full_path>
+lookup_group() {
+  groupid=$( curl \
+      --silent \
+      --show-error \
+      --fail \
+      --retry 5 \
+      "https://gitlab.com/api/v4/groups/?search=${1}" \
+    | jq \
+        --raw-output \
+        '.[] | select (.full_path == "'${1}'") | .id' )
+
+  echo "[>] Group: https://gitlab.com/${1} (${groupid})" >&2
+
+  list_projects "${groupid}"
+}
+
+## list_projects <groupid>
+list_projects() {
+  ## Reset page counter
+  page=0
+
+  ## Keep going forever
+  while true; do
+    ## Increase page counter
+    page=$((page+1))
+
+    ## Try and list all projects
+    request=$( list_projects_name "${1}" "${page}" )
+
+    ## If no more, quit
+    if [ -z "${request}" ]; then
+      break
+    fi
+
+    ## Loop over every project that was just received
+    for project_name in $( echo "${request}" ); do
+      ## Skip these repos
+      if [ "${project_name}" = "WIP" ]; then
+        continue
+      fi
+
+      ## Do any action for project
+      echo "${project_name}"
+    done
+  done
+}
+
+## list_projects_name <group_id> <page> {<archived>}
+list_projects_name() {
+  curl \
+      --silent \
+      --show-error \
+      --fail \
+      --retry 5 \
+      "https://gitlab.com/api/v4/groups/${1}/projects/?order_by=name&sort=asc&per_page=100&page=${2}&archived=${3:-false}" \
+    | jq \
+        --raw-output \
+        '.[] | .name'
+}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+## Start
+lookup_group "kalilinux/packages"

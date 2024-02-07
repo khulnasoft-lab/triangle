@@ -1,0 +1,281 @@
+#!/bin/sh
+# Dependencies for this script:
+#   apt update && apt install --yes --no-install-recommends wget devscripts xmlstarlet dctrl-tools git
+
+set -e
+
+cd $(dirname $0)
+BASEDIR=$(pwd)
+
+if [ -e $BASEDIR/config ]; then
+    . $BASEDIR/config
+fi
+
+WORKDIR=${WORKDIR:-$BASEDIR/work}
+PACKAGE_LIST=${PACKAGE_LIST:-$BASEDIR/package-list}
+NETWORK_LIST=${NETWORK_LIST:-$BASEDIR/network-list}
+MIRROR=${MIRROR:-http://http.kali.org/kali}
+DIST=${DIST:-kali-dev}
+VERBOSE=${VERBOSE:-0}
+
+log() {
+    if [ "$VERBOSE" -ge "1" ]; then
+        echo "[i] $*" >&2
+    fi
+}
+
+update_network_list() {
+    log "Updating network package list: $NETWORK_LIST"
+    :> $NETWORK_LIST
+    for component in main contrib non-free non-free-firmware; do
+        wget -q $MIRROR/dists/$DIST/$component/source/Sources.gz -O - | \
+            gzip -dc >> $NETWORK_LIST
+    done
+    log "Found $(list_packages | wc -l) packages"
+}
+
+list_packages() {
+    if [ -e "$PACKAGE_LIST" ]; then
+         grep -v '^#' $PACKAGE_LIST \
+         | grep -v -e '^[[:space:]]*$' \
+         | sort \
+         | while read -r pkg; do
+            if ! grep -q "^Package: $pkg$" $NETWORK_LIST; then
+		if grep -q -E "^Binary:.* $pkg(,|$)" $NETWORK_LIST; then
+		    pkg_src=$( apt-cache show $pkg | awk -F '[: ]' '/^Source: / {print $3}' )
+		    echo "WARNING: $pkg is a binary package name, not the source package name $pkg_src in $DIST" >&2
+		    log "Switching from binary to source package name in: $PACKAGE_LIST"
+		    sed -i "s|^$pkg$|$pkg_src|" $PACKAGE_LIST
+		    pkg=$pkg_src
+		else
+		    echo "WARNING: skipping unknown source package $pkg" >&2
+		    continue
+		fi
+	    fi
+	    echo $pkg
+         done
+    else
+        sed -n 's/^Package: //p' $NETWORK_LIST
+    fi
+}
+
+extract_field() {
+    local pkg=$1
+    local field=$2
+    grep-dctrl --exact-match -P $pkg --show-field $field --no-field-names < $NETWORK_LIST || true
+}
+
+dsc_url() {
+    local pkg=$1
+    dir=$(extract_field $pkg Directory)
+    dsc=$(extract_field $pkg Files | awk '/.dsc$/ { print $3 }')
+    echo "$MIRROR/$dir/$dsc"
+}
+
+extract_watch_files() {
+    log "Extracting package's watch files"
+    for package in $(list_packages); do
+        if ! grep -q "Package: $package" $NETWORK_LIST; then
+            echo "WARNING: $package is not available in: $DIST" >&2
+            continue
+        fi
+        version=$(extract_field $package Version)
+        if grep -q ${package}_${version} $WORKDIR/extracted; then
+            continue
+        fi
+        url=$(dsc_url $package)
+        log "Extracting watch file from: $url"
+        cd $WORKDIR/tmp
+        if ! dget -q -u -d $url; then
+            echo "ERROR: downloading source package from: $url" >&2
+           continue
+        fi
+        cd $BASEDIR
+        filename="$WORKDIR/tmp/$(basename $url)"
+        target="$WORKDIR/watchfiles/$package"
+        set +e
+        dscextract -f $filename debian/watch > ${target}.new
+        result=$?
+        set -e
+        rm -f $WORKDIR/tmp/*
+        case $result in
+            0)
+                sed -i -e 's/pgpsigurlmangle=s[^, ]*/active/' ${target}.new
+                mv ${target}.new $target
+                ;;
+            1)
+                rm -f ${target}.new $target
+                ;;
+            *)
+                rm -f ${target}.new
+                echo "ERROR: extracting debian/watch from: $filename" >&2
+                return
+                ;;
+        esac
+        grep -v "^${package}_" $WORKDIR/extracted > $WORKDIR/extracted.new || true
+        mv $WORKDIR/extracted.new $WORKDIR/extracted
+        echo "${package}_${version}" >> $WORKDIR/extracted
+    done
+}
+
+run_uscan() {
+    local pkg=$1
+    local version=$2
+    uscan \
+      --watchfile $WORKDIR/watchfiles/$pkg \
+      --upstream-version $version \
+      --package $pkg \
+      --dehs \
+      --no-verbose
+}
+
+extract_upstream_version() {
+    local version=$1
+    new=$(expr "$version" : '[0-9]\+:\(.*\)' || true)
+    if [ -n "$new" ]; then
+        version=$new
+    fi
+    new=$(expr "$version" : '\(.*\)-[^-]*' || true)
+    if [ -n "$new" ]; then
+        version=$new
+    fi
+    echo $version
+}
+
+get_uscan_field() {
+    # Uscan doesn't only output XML valid content, and can break XML parsing
+    # Debian bug https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1019259
+    grep '<' $WORKDIR/tmp/uscan-stdout | xmlstarlet sel -t -v /dehs/$1 || true
+}
+
+dump_uscan_data() {
+    echo "  STDOUT: "
+    sed -e 's/^/    /' $WORKDIR/tmp/uscan-stdout
+    if [ -s $WORKDIR/tmp/uscan-stderr ]; then
+        echo "  STDERR: "
+        sed -e 's/^/    /' $WORKDIR/tmp/uscan-stderr
+    fi
+}
+
+record_status() {
+    local pkg=$1
+    local status=$2
+    current=$(grep "^$1 " $WORKDIR/status | cut -d" " -f2)
+    if [ "$current" = "$status" ]; then
+        return
+    fi
+    # Fill out the report when something changed
+    version=$(extract_field $package Version)
+    case "$status" in
+    OK)
+        ;;
+    NATIVE)
+        ;;
+    OUTDATED_*)
+        echo "<a name='$pkg'></a>"
+        echo "$pkg $version can be updated to new upstream version: $3"
+        echo "Tarball is at: <a href='$4'>$4</a>"
+        echo ""
+        echo "<hr>"
+        ;;
+    BROKEN)
+        echo "<a name='$pkg'></a>"
+        echo "The watch file of $pkg $version in $DIST is no longer working:"
+        dump_uscan_data
+        echo ""
+        echo "<hr>"
+        ;;
+    MISSING)
+        echo "<a name='$pkg'></a>"
+        echo "The watch file is missing in $pkg $version in $DIST"
+        echo ""
+        echo "<hr>"
+        ;;
+    *)
+        echo "ERROR: unknown status in record_status: $status" >&2
+        ;;
+    esac >> $WORKDIR/report
+    # Store the new status
+    grep -v "^$pkg " $WORKDIR/status > $WORKDIR/status.new || true
+    echo "$pkg $status" >> $WORKDIR/status.new
+    mv $WORKDIR/status.new $WORKDIR/status
+}
+
+check_new_upstream_versions() {
+    log "Checking for updates via watch files"
+    for package in $(list_packages); do
+        format=$(extract_field $package Format)
+        if echo "$format" | grep -q "^3\.0 (native)$" || echo "$format" | grep -q "^1\.0"; then
+            record_status $package NATIVE
+            continue
+        fi
+        if [ ! -e $WORKDIR/watchfiles/$package ]; then
+            log "WARNING: $package has no watch file in $DIST"
+            record_status $package MISSING
+            continue
+        fi
+        version=$(extract_field $package Version)
+        debian_uversion=$(extract_upstream_version $version)
+        run_uscan $package $debian_uversion > $WORKDIR/tmp/uscan-stdout 2> $WORKDIR/tmp/uscan-stderr || true
+        status=$(get_uscan_field status)
+        upstream_version=$(get_uscan_field upstream-version)
+        upstream_url=$(get_uscan_field upstream-url)
+        case "$status" in
+            "Newer version available"|"newer package available")
+                log "NEW: $package $upstream_version at $upstream_url"
+                status="OUTDATED_$upstream_version"
+                ;;
+            "up to date"|"Debian version newer than remote site"|"only older package available")
+                log "INFO: $package is $status"
+                status="OK"
+                ;;
+            "")
+                log "BROKEN: $package"
+                log "$(dump_uscan_data)"
+                status="BROKEN"
+                ;;
+            *)
+                echo "ERROR: unknown output uscan status: $status" >&2
+                log "$(dump_uscan_data)"
+                status="BROKEN"
+                ;;
+        esac
+        record_status "$package" "$status" "$upstream_version" "$upstream_url"
+    done
+}
+
+setup_workdir() {
+    log "Setting up $(basename $0): $WORKDIR"
+    mkdir -p $WORKDIR/tmp $WORKDIR/watchfiles
+    touch $WORKDIR/extracted
+    touch $WORKDIR/status
+    : > $WORKDIR/report
+}
+
+send_report() {
+    log "Generating report"
+    if [ ! -s $WORKDIR/report ]; then
+        log "REPORT: Nothing new to report"
+        exit 0
+    fi
+
+    if [ -n "$MAILTO" ]; then
+        log "REPORT: Sent by mail to $MAILTO"
+        cat - $WORKDIR/report <<-END | mail -s "Upstream watch status for $DIST" $MAILTO
+        Hello,
+
+        The following changes have been detected while running uscan
+        on all the watch files tracked in $DIST:
+
+END
+    else
+        log "REPORT: The following changes have been detected"
+        cat $WORKDIR/report
+    fi
+}
+
+setup_workdir
+update_network_list
+extract_watch_files
+check_new_upstream_versions
+send_report

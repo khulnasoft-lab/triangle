@@ -1,0 +1,84 @@
+# ## CI/CD Settings - Schedules
+# URL: https://gitlab.com/kalilinux/tools/upstream-watch
+# CI/CD -> Schedules -> New Schedule
+# - Description: `Daily`
+# - Interval Pattern: `Custom` -> `0 0 * * *`
+# - Cron Timezone: `UTC`
+# - Target branch or tag: `master`
+# - Activated: `Enable`
+
+image: 'kalilinux/kali-rolling'
+
+stages:
+  - update
+  - deploy
+
+variables:
+  # Create a shallow git copy
+  GIT_DEPTH: 1
+  # Location to work
+  BASEDIR: /tmp/upstream-watch
+  # How much to show out on the screen (not in the report)
+  VERBOSE: 1
+
+default:
+  before_script:
+    - apt-get --quiet update
+    # ./upstream-watch requirements
+    - apt-get --quiet --yes --no-install-recommends install wget devscripts xmlstarlet dctrl-tools git
+    # ./upstream-watch configurations
+    - echo "MIRROR=http://kali.download/kali" >  config
+    - echo "BASEDIR=${BASEDIR}"               >> config
+    - echo "VERBOSE=${VERBOSE}"               >> config
+    # Create working folder
+    - mkdir -pv "${BASEDIR}/" ./public/
+  artifacts:
+    paths:
+      - public/
+    expire_in: 1 week
+
+top10:
+  stage: update
+  script:
+    - ./generate-html kali-tools-top10 > ./public/01-top10.html
+
+headless:
+  stage: update
+  script:
+    - ./generate-html kali-linux-headless > ./public/05-headless.html
+
+kalidefault:
+  stage: update
+  script:
+    - ./generate-html kali-linux-default > ./public/10-default.html
+
+large:
+  stage: update
+  script:
+    - ./generate-html kali-linux-large > ./public/15-large.html
+
+everything:
+  stage: update
+  script:
+    - ./generate-html kali-linux-everything > ./public/20-everything.html
+
+gitlab:
+  stage: update
+  script:
+    - apt-get --quiet --yes --no-install-recommends install curl ca-certificates jq
+    - ./generate-gitlab-package-list | tee ${BASEDIR}/package-list
+    - ./generate-html > ./public/50-gitlab.html
+
+upstream-watch:
+  stage: update
+  script:
+    - cp -vf ./package-list ${BASEDIR}/package-list
+    - ./generate-html > ./public/99-upstream-watch.html
+
+pages:
+  stage: deploy
+  image: 'debian:11-slim'
+  before_script: ""
+  script:
+    - for file in $( ls public | sort ); do echo "<a href='${file}'>$( echo ${file} | sed 's_^[0-9]*-\(.*\)\..*$_\1_' )</a><br />" | tee -a "./public/index.html"; done
+    - 'echo "<p>Last Updated: <a href=${CI_PAGES_URL}>$( date -u )</a> (<a href="${CI_PROJECT_URL}">repo</a>)</p>" >> ./public/index.html'
