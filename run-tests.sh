@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+port=9000
+
+print_usage() {
+    cat << EOF
+usage: $0 [IMAGE...]
+
+examples:
+       $0 7.6-community
+EOF
+}
+
+info() {
+    echo "[info] $@"
+}
+
+warn() {
+    echo "[warn] $@" >&2
+}
+
+fatal() {
+    echo "[error] $@" >&2
+    exit 1
+}
+
+require() {
+    local prog missing=()
+    for prog; do
+        if ! type "$prog" &>/dev/null; then
+            missing+=("$prog")
+        fi
+    done
+
+    [[ ${#missing[@]} = 0 ]] || fatal "could not find reqired programs on the path: ${missing[@]}"
+}
+
+wait_for_triangle() {
+    local image=$1 i web_up=no triangle_up=no
+
+    for ((i = 0; i < 15; i++)); do
+        info "$image: waiting for web server to start ..."
+        if curl -sI localhost:$port | grep '^HTTP/.* 200'; then
+            web_up=yes
+            break
+        fi
+        sleep 5
+    done
+
+    [[ $web_up = yes ]] || return 1
+
+    for ((i = 0; i < 30; i++)); do
+        info "$image: waiting for triangle to be ready ..."
+        if curl -s localhost:$port/api/system/status | grep '"status":"UP"'; then
+            triangle_up=yes
+            break
+        fi
+        sleep 10
+    done
+
+    [[ "$triangle_up" = yes ]]
+}
+
+wait_for_triangle_dce() {
+    local image=$1-app i web_up=no triangle_up=no
+
+    for ((i = 0; i < 80; i++)); do
+        info "$image: waiting for web server to start ..."
+        if curl -sI localhost:$port | grep '^HTTP/.* 200'; then
+            web_up=yes
+            break
+        fi
+        sleep 5
+    done
+
+    [[ $web_up = yes ]] || return 1
+
+    for ((i = 0; i < 80; i++)); do
+        info "$image: waiting for triangle to be ready ..."
+        if curl -s localhost:$port/api/system/status | grep '"status":"UP"'; then
+            triangle_up=yes
+            break
+        fi
+        sleep 10
+    done
+
+    [[ "$triangle_up" = yes ]]
+}
+
+sanity_check_image() {
+    local image=$1 id result
+    local test_case=$2
+
+    if [[ $2 == docker ]]; then
+        id=$(docker run -d -p $port:9000 "$image")
+        info "$image: container started: $id"
+
+        if wait_for_triangle "$image"; then
+            info "$image: OK !"
+            result=ok
+        else
+            warn "$image: could not confirm service started"
+            result=failure
+        fi
+
+        info "$image: stopping container: $id"
+        docker container stop "$id"
+
+        [[ $result == ok ]]
+    elif [ $2 == docker-compose ]; then
+        local test_compose_path="tests/dce-compose-test"
+        cd $test_compose_path
+        export PORT=$port
+        export IMAGE=$1
+        docker compose up -d triangle
+        if wait_for_triangle_dce "$image"; then
+            info "$image-app: OK !"
+            result=ok
+        else
+            warn "$image-app: could not confirm service started"
+            result=failure
+        fi
+
+        info "$image-app: stopping container stack"
+        docker compose stop
+
+        [[ $result == ok ]]
+    fi
+    
+}
+
+require curl docker
+
+for arg; do
+    if [[ $arg == "-h" ]] || [[ $arg == "--help" ]]; then
+        print_usage
+        exit
+    fi
+done
+
+if [[ $# = 0 ]]; then
+    warn "at least one image as parameter is required"
+    exit
+fi
+
+image=($1)
+test_case=($2)
+results=()
+
+if sanity_check_image "$image" "$test_case"; then
+    results+=("success")
+else
+    results+=("failure")
+fi
+
+failures=0
+echo "${image} => ${results}"
+if [[ ${results} != success ]]; then
+    ((failures++))
+fi
+
+[[ $failures = 0 ]]
