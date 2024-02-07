@@ -1,0 +1,156 @@
+#  Template configuration file for britney
+
+# Paths to suites in a local mirror
+# Note: Britney will only need metadata files and not the debs/dscs
+# themselves.
+UNSTABLE          = /path/to/source/suite
+TESTING           = /path/to/target/suite
+# Items in these two (optional) suites will require manual approval
+# TPU               = /path/to/secondary-source/suite
+# PU                = /path/to/another-source/suite
+
+# By default, package removal propagates to the target suite. To disable this,
+# e.g. for partial suites like experimental or spu, uncomment the next line
+# PARTIAL_SOURCE    = true
+
+# Output
+NONINST_STATUS      = /path/to/britneys-output-dir/non-installable-status
+EXCUSES_OUTPUT      = /path/to/britneys-output-dir/excuses.html
+EXCUSES_YAML_OUTPUT = /path/to/britneys-output-dir/excuses.yaml
+UPGRADE_OUTPUT      = /path/to/britneys-output-dir/output.txt
+HEIDI_OUTPUT        = /path/to/britneys-output-dir/HeidiResult
+HEIDI_DELTA_OUTPUT  = /path/to/britneys-output-dir/HeidiResultDelta
+
+# External policy/constraints/faux-packages information that
+# (presumably) rarely changes.  Examples include "constraints".
+# STATIC_INPUT_DIR = /path/to/static/input
+
+# Directory for input files that Britney will update herself
+# (e.g. aging information) or will need regular updates
+# (e.g. urgency information).
+STATE_DIR          = /path/to/britey/state-dir
+
+# List of architectures that Britney should consider.
+# - defaults to the value in testing's Release file (if it is present).
+# - Required for the legacy layout.
+#ARCHITECTURES     = i386 amd64 arm64 armel armhf mips mipsel mips64el powerpc ppc64el s390x
+
+# if you're not in this list, arch: all packages are allowed to break on you
+NOBREAKALL_ARCHES = i386 amd64
+
+# if you're in this list, your packages may not stay in sync with the source
+OUTOFSYNC_ARCHES  =
+
+# if you're in this list, your uninstallability count may increase
+BREAK_ARCHES      =
+
+# if you're in this list, you are a new architecture
+NEW_ARCHES        =
+
+# For the aging policy - all "MINDAYS_X" are measured in days
+MINDAYS_LOW       = 10
+MINDAYS_MEDIUM    = 5
+MINDAYS_HIGH      = 2
+MINDAYS_CRITICAL  = 0
+MINDAYS_EMERGENCY = 0
+# The urgency to assume if none is provided or it is not defined with
+# a MINDAYS_$NAME config above
+DEFAULT_URGENCY   = medium
+# Don't apply penalties (e.g. from autopktest in bounty/penalty mode) for the
+# following urgencies
+NO_PENALTIES      = high critical emergency
+# Lower limit of the age, so accumulated bounties don't let package migrate
+# too quick (urgency still has president of course)
+# Can be given an urgency name
+#BOUNTY_MIN_AGE    = high
+BOUNTY_MIN_AGE    = 2
+
+# Directory where hints files are stored
+HINTSDIR = /path/to/britney/hints-dir
+
+# hint permissions
+# Each "HINTS_NAME" defines the list of permissions for a given hints
+# file in HINTSDIR.  The name of the hints file should be in all
+# lowercase (i.e. "HINTS_FOO" applies to the file "foo" in HINTSDIR)
+#
+#
+# HINTS_USER1         = STANDARD
+# HINTS_USER2         = STANDARD force
+# HINTS_USER3         = STANDARD force force-hint
+# HINTS_USER4         = ALL
+#
+# Possible "role" hints
+#
+# HINTS_FREEZE        = block block-all block-udeb
+# HINTS_AUTO-REMOVALS = remove
+
+# support for old libraries in testing (smooth update)
+#
+# This option makes it easier for Britney to handle transitions as she
+# will be allowed to keep old binaries around if they have reverse
+# dependencies.
+#
+# This requires that your archive tool is capable of handling binaries
+# without a source (or multiple versions of the source package in a
+# given suite).  The "old" source will *not* be listed in the output
+# for binaries that are retained like this.  DAK is known to handle
+# this and will keep the "old" source in the target distribution as
+# long as it has binaries left.
+#
+# - leave it blank to disable it
+# - use ALL to enable smooth updates for all the sections
+# - naming a non-existent section will effectively disable new
+#   smooth updates but still allow removals to occur
+SMOOTH_UPDATES    = libs oldlibs
+
+# Whether old binaries in the source distribution should be
+# considered as a blocker for migration.
+IGNORE_CRUFT      = 1
+
+# Enable the autopkgtest policy
+ADT_ENABLE        = no
+# Define on which architectures tests should be executed and taken into account
+ADT_ARCHES        = amd64
+# AMQP url or request file for the testing framework
+#ADT_AMQP          = amqp://test_request:password@127.0.0.1
+ADT_AMQP          = file:///path/to/britney/debci.input
+# space separate list of PPAs to add for test requests and for polling results;
+# the *last* one determines the swift container name
+ADT_PPAS          =
+# set this to the path of a (r/o) autopkgtest-results.cache for running many parallel
+# britney instances for PPAs without updating the cache
+ADT_SHARED_RESULTS_CACHE =
+# Swift base URL with the results (must be publicly readable and browsable)
+# or file location if results are pre-fetched
+#ADT_SWIFT_URL     = https://example.com/some/url
+ADT_SWIFT_URL     = file:///path/to/britney/state/debci.json
+# Base URL for autopkgtest site, used for links in the excuses
+ADT_CI_URL        = https://example.com/
+# Complete URL to find a specific build log, used for links in the excuses
+# Supported placeholders are: arch, suite, source (ie. source package), version
+BUILD_URL         = https://buildd.example.com/status/logs.php?suite=sid&arch={arch}&pkg={source}&ver={version}
+# Enable the huge queue for packages that trigger vast amounts of tests to not
+# starve the regular queue
+#ADT_HUGE          = 20
+
+# Autopkgtest results can be used to influence the aging, leave
+# ADT_REGRESSION_PENALTY empty to have regressions block migration
+ADT_REGRESSION_PENALTY = 10
+ADT_SUCCESS_BOUNTY     = 3
+
+# Enable the migration of packages that are missing in testing, and
+# whose tests fail (disabled by default)
+ADT_IGNORE_FAILURE_FOR_NEW_TESTS = 0
+
+# Enforce Built-Using relationships are satisfied in the target suite (enabled
+# by default)
+# BUILT_USING_POLICY_ENABLE = yes
+
+# Enable the piuparts policy (enabled by default)
+# PIUPARTS_ENABLE = yes
+
+# Enable the age policy (enabled by default)
+# AGE_ENABLE = yes
+
+# Enable the rc-bug policy (enabled by default)
+# RCBUG_ENABLE = yes

@@ -1,0 +1,16 @@
+*.o
+*.so
+*.pyc
+
+.cache
+.idea
+.secret-headers
+_build
+
+/lib/aptvercmp
+/lib/checklib
+/lib/freelist
+/lib/Makefile.dep
+
+data
+kali-run-britney.log*
