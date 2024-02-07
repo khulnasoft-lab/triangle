@@ -1,0 +1,181 @@
+# After modifications, please call:
+# "python3 -m debian_cloud_images.cli.generate_ci .gitlab/ci/generated.yml"
+---
+apiVersion: cloud.debian.org/v1alpha1
+kind: ImageConfig
+
+archs:
+- name: amd64
+  azureName: X64
+  fai_classes: [AMD64, GRUB_CLOUD_AMD64]
+- name: arm64
+  azureName: Arm64
+  fai_classes: [ARM64, GRUB_EFI_ARM64]
+- name: ppc64el
+  fai_classes: [PPC64EL, GRUB_IEEE1275]
+
+releases:
+- name: buster
+  basename: buster
+  id: '10'
+  baseid: '10'
+  fai_classes: [BUSTER, EXTRAS]
+  arch_supports_linux_image_cloud: [amd64]
+- name: buster-backports
+  basename: buster-backports
+  id: 10-backports
+  baseid: '10'
+  fai_classes: [BUSTER, BACKPORTS_LINUX, EXTRAS]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: bullseye
+  basename: bullseye
+  id: '11'
+  baseid: '11'
+  fai_classes: [BULLSEYE, EXTRAS]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: bullseye-backports
+  basename: bullseye-backports
+  id: 11-backports
+  baseid: '11'
+  fai_classes: [BULLSEYE, BACKPORTS_LINUX, EXTRAS]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: bookworm
+  basename: bookworm
+  id: '12'
+  baseid: '12'
+  fai_classes: [BOOKWORM, EXTRAS]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: sid
+  basename: sid
+  id: sid
+  baseid: sid
+  fai_classes: [SID, EXTRAS]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: kali-rolling
+  basename: kali-rolling
+  id: kali-rolling
+  baseid: kali-rolling
+  fai_classes: [KALI, KALI_EXTRAS, KALI_ROLLING]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: kali-rolling-minimal
+  basename: kali-rolling
+  id: kali-rolling
+  baseid: kali-rolling
+  fai_classes: [KALI, KALI_ROLLING]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: kali-last-snapshot
+  basename: kali-last-snapshot
+  id: kali-last-snapshot
+  baseid: kali-last-snapshot
+  fai_classes: [KALI, KALI_EXTRAS, KALI_LAST_SNAPSHOT]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: kali-last-snapshot-minimal
+  basename: kali-last-snapshot
+  id: kali-last-snapshot
+  baseid: kali-last-snapshot
+  fai_classes: [KALI, KALI_LAST_SNAPSHOT]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: kali-dev
+  basename: kali-dev
+  id: kali-dev
+  baseid: kali-dev
+  fai_classes: [KALI, KALI_EXTRAS, KALI_DEV]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+- name: kali-dev-minimal
+  basename: kali-dev
+  id: kali-dev
+  baseid: kali-dev
+  fai_classes: [KALI, KALI_DEV]
+  arch_supports_linux_image_cloud: [amd64, arm64]
+
+vendors:
+- name: azure
+  fai_classes: [AZURE, IPV6_DHCP]
+  size: 40 # kali-linux-everything is 30GB (at the time of commit!)
+  use_linux_image_cloud: true
+  matches:
+  - matchArches: [amd64]
+  - matchArches: [arm64]
+    matchReleases: [buster, buster-backports, bullseye]
+    op: Disable
+  - matchArches: [arm64]
+- name: ec2
+  fai_classes: [EC2, IPV6_DHCP]
+  size: 12
+  use_linux_image_cloud: true
+  matches:
+  - matchArches: [amd64, arm64]
+- name: gce
+  fai_classes: [GCE]
+  size: 12
+  use_linux_image_cloud: true
+  matches:
+  - matchReleases: [bullseye]
+    op: Disable
+  - matchArches: [amd64]
+- name: generic
+  fai_classes: [GENERIC]
+  size: 12
+- name: genericcloud
+  fai_classes: [GENERIC]
+  size: 12
+  use_linux_image_cloud: true
+  matches:
+  - matchReleases: [buster]
+    matchArches: [arm64]
+    op: Disable
+  - matchArches: [amd64, arm64]
+- name: nocloud
+  fai_classes: [NOCLOUD]
+  size: 12
+
+types:
+- name: dev
+  fai_classes: [TYPE_DEV]
+  output_name: 'kali-{release}-{vendor}-{arch}-{build_type}-{build_id}-{version}'
+  output_version: '{version}'
+  output_version_azure: '0.0.{version!s}'
+- name: official
+  fai_classes: []
+  output_name: 'kali-{release}-{vendor}-{arch}-{build_type}-{version}'
+  output_version: '{date}-{version}'
+  output_version_azure: '0.{date!s}.{version!s}'
+
+publicTypes:
+- name: dev
+- name: daily
+  matches:
+  - matchVendors: [azure]
+    matchReleases: [buster, buster-backports]
+    uploadGroup: debian-10-daily
+    op: EnableUpload
+  - matchVendors: [azure]
+    matchReleases: [bullseye, bullseye-backports]
+    uploadGroup: debian-11-daily
+    op: EnableUpload
+  - matchVendors: [azure]
+    matchReleases: [bookworm, bookworm-backports]
+    uploadGroup: debian-12-daily
+    op: EnableUpload
+  - matchVendors: [azure]
+    matchReleases: [sid]
+    uploadGroup: debian-sid-daily
+    op: EnableUpload
+  - matchVendors: [ec2]
+    op: EnableUpload
+  - matchVendors: [generic, genericcloud, nocloud]
+- name: release
+  matches:
+  - matchReleases: [bookworm, bookworm-backports, sid]
+    op: Disable
+  - matchVendors: [azure]
+    matchReleases: [buster, buster-backports]
+    uploadGroup: debian-10
+    op: EnableUpload
+  - matchVendors: [azure]
+    matchReleases: [bullseye, bullseye-backports]
+    uploadGroup: debian-11
+    op: EnableUpload
+  - matchVendors: [ec2]
+    op: EnableUpload
+  - matchVendors: [generic, genericcloud]

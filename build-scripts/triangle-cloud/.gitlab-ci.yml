@@ -1,0 +1,127 @@
+---
+stages:
+  - source test
+  - build
+
+variables:
+  CLOUD_IMAGE_BUILD_ID: ${CI_PROJECT_NAMESPACE}-${CI_COMMIT_REF_SLUG}
+  GIT_DEPTH: "1"
+
+workflow:
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    when: never
+  - when: always
+
+before_script:
+  - apt-get update
+  - apt-get install --no-install-recommends -y python3-libcloud python3-marshmallow python3-yaml qemu-utils
+  - |
+    if [ "$CI_DISPOSABLE_ENVIRONMENT" ]; then
+      # Workaround unsupported SEEK_HOLE in overlayfs (Docker default)
+      mount -t tmpfs none /tmp
+    fi
+
+test package:
+  stage: source test
+  image: debian:bookworm
+  before_script:
+  - apt-get update
+  - apt-get build-dep -y ./package
+  - apt-get install --no-install-recommends -y lintian
+  script:
+  - cd package
+  - for arch in amd64 arm64 ppc64el; do dpkg-buildpackage -us -uc -a$arch; done
+  - lintian ../*.changes
+
+.test python:
+  stage: source test
+  script:
+  - >
+    apt-get install --no-install-recommends -y
+    python3-pytest python3-requests-mock
+  - >
+    PYTHONPATH=src
+    py.test-3
+    -vrxXs
+    --color=yes
+    tests
+
+test python bullseye:
+  extends: .test python
+  image: debian:bullseye
+
+test python bookworm:
+  extends: .test python
+  image: debian:bookworm
+
+test python latest:
+  stage: source test
+  image: python:slim
+  before_script:
+  - pip install -e .[mypy,tests] "flake8<5" pytest pytest-cov pytest-flake8 pytest-mypy
+  script:
+  - >
+    pytest
+    -vrxXs
+    --color=yes
+    --cov=src --cov-report=term --cov-report=html:coverage
+    --flake8
+    --mypy
+    --junit-xml=junit.xml
+  artifacts:
+    paths:
+    - coverage/
+    reports:
+      junit: junit.xml
+
+####
+# Builds for developer uploads pushes
+#
+# Builds are run if
+# - the manual jobs are started.
+####
+
+.build:
+  stage: build
+  image: debian:bookworm
+  script:
+    - |
+      if [ "$CI_DISPOSABLE_ENVIRONMENT" ]; then
+        # Some of our build environments run with SELinux enabled, make sure it is detected by all the tools
+        if [ -d /sys/fs/selinux ]; then mount -t selinuxfs none /sys/fs/selinux; mkdir -p /etc/selinux; touch /etc/selinux/config; fi
+        # Setup binfmt_misc for foreign binaries via qemu-user
+        if [ ! -e /proc/sys/fs/binfmt_misc/status ]; then
+          mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+        fi
+      fi
+    - >
+      apt-get install --no-install-recommends -y
+      binfmt-support ca-certificates debsums dosfstools fai-server fai-setup-storage fdisk make python3-pytest qemu-user-static qemu-utils sudo udev
+    - >
+      echo
+      debian-cloud-images build
+      --build-id ${CLOUD_IMAGE_BUILD_ID}
+      --build-type dev
+      --version ${CI_PIPELINE_IID}
+      ${CLOUD_RELEASE} ${CLOUD_VENDOR} ${CLOUD_ARCH}
+    - >
+      ./bin/debian-cloud-images build
+      --build-id ${CLOUD_IMAGE_BUILD_ID}
+      --build-type dev
+      ${CLOUD_RELEASE} ${CLOUD_VENDOR} ${CLOUD_ARCH}
+    - 'xz -vk5T0 *.tar'
+  artifacts:
+    name: debian-${CLOUD_RELEASE}-${CLOUD_VENDOR}-${CLOUD_ARCH}
+    expire_in: 7 days
+    paths:
+      - '*.build.json'
+      - '*.info'
+      - '*.tar.xz'
+    reports:
+      junit: '*.build.junit.xml'
+  needs: []
+  allow_failure: true
+
+include:
+  local: .gitlab/ci/generated.yml
