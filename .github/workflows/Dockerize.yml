@@ -1,0 +1,58 @@
+name: Dockerize Tools
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # Install Docker and optional dependencies
+      - name: Install Docker
+        run: sudo apt-get update && sudo apt-get install -y docker-ce docker-compose
+
+      # Define directories containing Dockerfiles
+      - name: Set directories
+        run: |
+          DIRS="tools/archvsync tools/britney2 tools/mirror-status tools/mirrorbits"
+
+      # Check Dockerfile syntax for each directory
+      - name: Check Dockerfile syntax
+        run: |
+          for dir in $DIRS; do
+            docker build -t "temp:$dir" --no-cache -f "$dir/Dockerfile" "$dir" || exit 1
+          done
+
+      # Build Docker images for each directory
+      - name: Build Docker images
+        run: |
+          for dir in $DIRS; do
+            docker build -t "$dir" --cache-from "temp:$dir" -f "$dir/Dockerfile" "$dir"
+          done
+
+      # Create symlinks (optional)
+      - name: Create symlinks (optional)
+        run: |
+          # Customizable parameters
+          DESTINATION="/path/to/symlinks"  # Destination directory for symlinks
+          SYMBOLIC_PREFIX="docker-"  # Optional prefix for symlink names
+
+          # Create symlinks based on provided parameters
+          for dir in $DIRS; do
+            symlink_name="$SYMBOLIC_PREFIX$dir"
+            ln -sf "$dir" "$DESTINATION/$symlink_name"
+          done
+
+      # Push images to registry (optional)
+      - name: Push images to registry (optional)
+        run: |
+          echo "Pushing images to registry (replace example commands with your registry)"
+          # Replace 'your_registry' with your registry login and tag each image
+          # for dir in $DIRS; do
+          #   docker login your_registry
+          #   docker tag "$dir" your_registry/$dir:latest
+          #   docker push your_registry/$dir:latest
+          # done
