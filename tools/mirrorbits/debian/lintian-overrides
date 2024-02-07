@@ -1,0 +1,7 @@
+# `/usr/share/mirrorbits/templates` contains HTML templates with third-party
+# assets. However mirrorbits can be configured to serve local assets instead.
+# Cf. README.Debian for details.
+mirrorbits: privacy-breach-generic
+mirrorbits: privacy-breach-uses-embedded-file
+# Called conditionally, only if systemd-sysusers not present
+maintainer-script-needs-depends-on-adduser adduser * [postinst:*]

@@ -1,0 +1,49 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Tue, 10 Oct 2023 13:44:15 +0700
+Subject: Minor improvements in logs
+
+Looking at the logs when the source is scan:
+
+scan.go:494  2023/10/10 06:18:58.633 UTC [source] Scanning the filesystem...
+scan.go:512  2023/10/10 06:19:22.079 UTC [source] Indexing the files...
+scan.go:624  2023/10/10 06:19:27.745 UTC [source] Scanned 544001 files
+
+And the logs when a mirror is scanned:
+
+rsync.go:89  2023/10/10 06:13:23.634 UTC [ftp.jaist.ac.jp] Requesting file list via rsync...
+trace.go:129 2023/10/10 06:13:23.979 UTC [ftp.jaist.ac.jp] trace last sync: 2023-10-10 00:00:01 +0000 UTC
+scan.go:221  2023/10/10 06:18:49.781 UTC [ftp.jaist.ac.jp] Indexed 544001 files (544000 known), 0 removed
+
+This commit brings two minor improvements:
+* log the number of files that were removed for the source, similar to how it's
+  done with mirrors.
+* add a log "Indexing the files" after the mirror scan returns, similar to how
+  it's done for the source.
+
+Forwarded: https://github.com/etix/mirrorbits/pull/148
+---
+ scan/scan.go | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/scan/scan.go b/scan/scan.go
+index 97200fd..f2e992d 100644
+--- a/scan/scan.go
++++ b/scan/scan.go
+@@ -146,6 +146,8 @@ func Scan(typ core.ScannerType, r *database.Redis, c *mirrors.Cache, url string,
+ 		return nil, err
+ 	}
+ 
++	log.Infof("[%s] Indexing the files...", name)
++
+ 	// Commit changes
+ 	s.ScannerCommit()
+ 
+@@ -607,7 +609,7 @@ func ScanSource(r *database.Redis, forceRehash bool, stop <-chan struct{}) (err
+ 		return err
+ 	}
+ 
+-	log.Infof("[source] Scanned %d files", len(sourceFiles))
++	log.Infof("[source] Scanned %d files, %d removed", len(sourceFiles), len(toremove))
+ 
+ 	return nil
+ }

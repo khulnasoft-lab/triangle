@@ -1,0 +1,39 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Mon, 16 Oct 2023 21:10:25 +0700
+Subject: monitor: Improve readability in mirrorCheckTicker case
+
++ bail out early if the mirror is not handled
++ use 'v' instead of 'm.mirrors[id]', since it's the same
+---
+ daemon/monitor.go | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/daemon/monitor.go b/daemon/monitor.go
+index 0be7d36..282a6c6 100644
+--- a/daemon/monitor.go
++++ b/daemon/monitor.go
+@@ -265,17 +265,20 @@ func (m *monitor) MonitorLoop() {
+ 					// Ignore disabled mirrors
+ 					continue
+ 				}
+-				if v.NeedHealthCheck() && !v.IsChecking() && m.cluster.IsHandled(id) {
++				if !m.cluster.IsHandled(id) {
++					continue
++				}
++				if v.NeedHealthCheck() && !v.IsChecking() {
+ 					select {
+ 					case m.healthCheckChan <- id:
+-						m.mirrors[id].checking = true
++						v.checking = true
+ 					default:
+ 					}
+ 				}
+-				if v.NeedSync() && !v.IsScanning() && m.cluster.IsHandled(id) {
++				if v.NeedSync() && !v.IsScanning() {
+ 					select {
+ 					case m.syncChan <- id:
+-						m.mirrors[id].scanning = true
++						v.scanning = true
+ 					default:
+ 					}
+ 				}

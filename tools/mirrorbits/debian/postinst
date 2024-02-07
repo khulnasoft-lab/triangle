@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -e 
+
+if [ "$1" = configure ]; then
+    if ! getent passwd mirrorbits >/dev/null && ! command -v systemd-sysusers >/dev/null; then
+       	adduser --system --group --quiet \
+	        --gecos "Mirrorbits System User" \
+		--home /var/lib/mirrorbits \
+		--shell /bin/bash \
+		mirrorbits
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

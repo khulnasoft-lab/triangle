@@ -1,0 +1,95 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 10:52:05 +0700
+Subject: Dual: commands: add: Add support for https
+
+Add a new flag -https to specify the HTTPS URL.
+
+When adding a mirror, either -http or -https (or both) must be passed,
+otherwise mirrorbits fails.
+
+Mirrorbits now checks for protocol mismatch, and fails if you pass a
+HTTPS URL to -http, or a HTTP URL ot -https.
+
+Finally, mirrorbits makes sure that the two URLs point to the same host.
+This is because we rely on the mirror hostname to geolocate it, so if we
+had two URLs pointing to two different hosts, it wouldn't work.
+---
+ cli/commands.go | 47 ++++++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 40 insertions(+), 7 deletions(-)
+
+diff --git a/cli/commands.go b/cli/commands.go
+index a793ae9..8d8d671 100644
+--- a/cli/commands.go
++++ b/cli/commands.go
+@@ -305,6 +305,7 @@ func StatusString(m *rpc.Mirror) string {
+ func (c *cli) CmdAdd(args ...string) error {
+ 	cmd := SubCmd("add", "[OPTIONS] IDENTIFIER", "Add a new mirror")
+ 	http := cmd.String("http", "", "HTTP base URL")
++	https := cmd.String("https", "", "HTTPS base URL")
+ 	rsync := cmd.String("rsync", "", "RSYNC base URL (for scanning only)")
+ 	ftp := cmd.String("ftp", "", "FTP base URL (for scanning only)")
+ 	sponsorName := cmd.String("sponsor-name", "", "Name of the sponsor")
+@@ -332,24 +333,56 @@ func (c *cli) CmdAdd(args ...string) error {
+ 		os.Exit(-1)
+ 	}
+ 
+-	if *http == "" {
+-		fmt.Fprintf(os.Stderr, "You *must* pass at least an HTTP URL\n")
++	if *http == "" && *https == "" {
++		fmt.Fprintf(os.Stderr, "You *must* pass at least either an HTTP or HTTPS URL\n")
+ 		os.Exit(-1)
+ 	}
+ 
+-	if !strings.HasPrefix(*http, "http://") && !strings.HasPrefix(*http, "https://") {
+-		*http = "http://" + *http
++	httpHost := ""
++
++	if *http != "" {
++		if strings.HasPrefix(*http, "https://") {
++			fmt.Fprintf(os.Stderr, "Protocol mismatch: don't pass a HTTPS URL with -http\n")
++			os.Exit(-1)
++		}
++		if !strings.HasPrefix(*http, "http://") {
++			*http = "http://" + *http
++		}
++		u, err := url.Parse(*http)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "Can't parse http url\n")
++			os.Exit(-1)
++		}
++		httpHost = u.Host
+ 	}
+ 
+-	_, err := url.Parse(*http)
+-	if err != nil {
+-		fmt.Fprintf(os.Stderr, "Can't parse url\n")
++	httpsHost := ""
++
++	if *https != "" {
++		if strings.HasPrefix(*https, "http://") {
++			fmt.Fprintf(os.Stderr, "Protocol mismatch: don't pass a HTTP URL with -https\n")
++			os.Exit(-1)
++		}
++		if !strings.HasPrefix(*https, "https://") {
++			*https = "https://" + *https
++		}
++		u, err := url.Parse(*https)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "Can't parse https url\n")
++			os.Exit(-1)
++		}
++		httpsHost = u.Host
++	}
++
++	if httpHost != "" && httpsHost != "" && httpHost != httpsHost {
++		fmt.Fprintf(os.Stderr, "HTTP URL and HTTPS URL *must* point to the same host\n")
+ 		os.Exit(-1)
+ 	}
+ 
+ 	mirror := &mirrors.Mirror{
+ 		Name:           cmd.Arg(0),
+ 		HttpURL:        *http,
++		HttpsURL:       *https,
+ 		RsyncURL:       *rsync,
+ 		FtpURL:         *ftp,
+ 		SponsorName:    *sponsorName,

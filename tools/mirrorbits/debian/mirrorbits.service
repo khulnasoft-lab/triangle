@@ -1,0 +1,51 @@
+[Unit]
+Description=Mirrorbits Redirector
+Documentation=https://github.com/etix/mirrorbits/wiki
+After=network.target redis.service
+Wants=redis.service
+ConditionPathExists=/etc/mirrorbits/mirrorbits.conf
+
+[Service]
+Type=notify
+User=mirrorbits
+Group=mirrorbits
+ConfigurationDirectory=mirrorbits
+LogsDirectory=mirrorbits
+RuntimeDirectory=mirrorbits
+
+Environment=DAEMON_ARGS=
+ExecStart=/usr/bin/mirrorbits daemon -config ${CONFIGURATION_DIRECTORY}/mirrorbits.conf \
+	-log ${LOGS_DIRECTORY}/daemon.log -p ${RUNTIME_DIRECTORY}/pid $DAEMON_ARGS
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=-/bin/kill -QUIT $MAINPID
+TimeoutStopSec=5
+KillMode=mixed
+Restart=on-failure
+
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+PrivateUsers=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+RemoveIPC=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+
+[Install]
+WantedBy=multi-user.target

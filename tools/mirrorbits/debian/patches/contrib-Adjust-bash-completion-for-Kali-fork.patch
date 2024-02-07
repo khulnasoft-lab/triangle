@@ -1,0 +1,46 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Fri, 2 Feb 2024 21:18:49 +0700
+Subject: contrib: Adjust bash completion for Kali fork
+
+Forwarded: not-needed
+---
+ contrib/completions/mirrorbits.bash | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/contrib/completions/mirrorbits.bash b/contrib/completions/mirrorbits.bash
+index 410ad75..303b001 100644
+--- a/contrib/completions/mirrorbits.bash
++++ b/contrib/completions/mirrorbits.bash
+@@ -95,7 +95,7 @@ _mirrorbits() {
+             add)
+                 COMPREPLY=( $( compgen -W '-help -admin-email -admin-name
+                     -as-only -comment -continent-only -country-only
+-                    -custom-data -ftp -http -rsync -score
++                    -custom-data -ftp -http -https -rsync -score
+                     -sponsor-logo -sponsor-name -sponsor-url
+                     ' -- "$cur" ) )
+                 ;;
+@@ -111,11 +111,21 @@ _mirrorbits() {
+                 ;;
+             export)
+                 COMPREPLY=( $( compgen -W '-help -disabled -ftp
+-                    -http -rsync' -- "$cur" ) )
++                    -http -https -rsync' -- "$cur" ) )
++                ;;
++            geoupdate)
++                case $cur in
++                    -*)
++                        COMPREPLY=( $( compgen -W '-help -f' -- "$cur" ) )
++                        ;;
++                    *)
++                        COMPREPLY=( $( compgen -W "$( _mirrorbits_list $port )" -- "$cur" ) )
++                        ;;
++                esac
+                 ;;
+             list)
+                 COMPREPLY=( $( compgen -W '-help -disabled -down -enabled
+-                    -ftp -http -location -rsync -score -state
++                    -ftp -http -https -location -rsync -score -state
+                     ' -- "$cur" ) )
+                 ;;
+             logs)

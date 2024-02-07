@@ -1,0 +1,31 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Fri, 6 Oct 2023 15:53:35 +0700
+Subject: Also reload logs on SIGHUP, in case the LogDir option was modified
+
+The configuration option LogDir is not reloaded on SIGHUP.
+
+For example, if LogDir was commented out, one might uncomment it, send
+SIGHUP to reload the conf, and then expect to see logs in downloads.log.
+But no, nothing happens, in fact mirrorbits has to be restarted for the
+change to be effective.
+
+Looking at the code, it's trivial to fix, so I suppose it was just an
+oversight.
+
+Forwarded: https://github.com/etix/mirrorbits/pull/143
+---
+ main.go | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/main.go b/main.go
+index ec950e6..cacaa52 100644
+--- a/main.go
++++ b/main.go
+@@ -114,6 +114,7 @@ func main() {
+ 						h.Stop(1 * time.Second)
+ 					}
+ 					h.Reload()
++					logs.ReloadLogs()
+ 				case syscall.SIGUSR1:
+ 					log.Notice("SIGUSR1 Received: Re-opening logs...")
+ 					logs.ReloadLogs()

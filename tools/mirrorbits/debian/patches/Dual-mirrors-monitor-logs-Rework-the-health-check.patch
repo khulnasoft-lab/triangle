@@ -1,0 +1,376 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 11:23:41 +0700
+Subject: Dual: mirrors, monitor, logs: Rework the health-check
+
+Now that a mirror can have two URLs (HTTP and HTTPS), the health-check
+needs to be reworked, and basically duplicated.
+
+In monitor, we move most of the healthCheck() function in another
+function healthCheckDo(). Very little remains in healthCheck(): it only
+picks a random file, and then it calls healthCheckDo() for the HTTP URL
+(if set), and then again for the HTTPS URL (if set).
+
+It's important to use the same file for both health checks, so that if
+ever one check fails and the other succeeds, we don't ask ourselves if
+it's because of the file that was picked.
+
+Then, doing both checks sequentially is not super elegant, but it's also
+super easy to implement it this way, without having to rewrite too much
+code, so let's live with that.
+
+Now for an overview of the changes in healthCheckDo():
+- we now include the protocol in the log output
+- we need to pass the protocol to the functions MarkMirror{Up,Down}
+
+Which leads us to the changes in mirrors/mirrors.go. We introduce a
+Protocol enum, and we use it for MarkMirror{Up,Down} and SetMirrorState.
+
+The function SetMirrorState becomes a little bit more tricky, and we
+take this chance to check that the URL is set when user tries to set the
+state to 'up'. This is because, obviously, if a mirror has no URL for a
+protocol (HTTP or HTTPS), then the only legit state for this protocol is
+'down'.
+
+Finally, we also update mirrors/logs.go to include the protocol in the
+LogStateChanged logs. Going forward, the lines:
+
+    Mirror is up/down ...
+
+will be replaced with
+
+    HTTP mirror is up/down ...
+
+and
+
+    HTTPS mirror is up/down ...
+
+For old logs already in the database, the protocol is not stored, and
+that will be translated to a value of 0 aka. UNDEFINED, which will be
+logged as 'Mirror is up/down ...' (that is: as before).
+---
+ daemon/monitor.go       | 45 +++++++++++++++++++++++++---------
+ mirrors/logs.go         | 21 ++++++++++++----
+ mirrors/mirrors.go      | 64 ++++++++++++++++++++++++++++++++++++++++---------
+ mirrors/mirrors_test.go | 18 +++++++++-----
+ 4 files changed, 116 insertions(+), 32 deletions(-)
+
+diff --git a/daemon/monitor.go b/daemon/monitor.go
+index a65dac7..a051253 100644
+--- a/daemon/monitor.go
++++ b/daemon/monitor.go
+@@ -477,22 +477,45 @@ func (m *monitor) syncLoop() {
+ 
+ // Do an actual health check against a given mirror
+ func (m *monitor) healthCheck(mirror mirrors.Mirror) error {
+-	// Format log output
+-	format := "%-" + fmt.Sprintf("%d.%ds", m.formatLongestID+4, m.formatLongestID+4)
+-
+ 	// Get the URL to a random file available on this mirror
+ 	file, size, err := m.getRandomFile(mirror.ID)
+ 	if err != nil {
+ 		if err == redis.ErrNil {
+ 			return errMirrorNotScanned
+ 		} else if !database.RedisIsLoading(err) {
+-			log.Warningf(format+"Error: Cannot obtain a random file: %s", mirror.Name, err)
++			log.Warningf("%s: Error: Cannot obtain a random file: %s", mirror.Name, err)
+ 		}
+ 		return err
+ 	}
+ 
++	// Do health checks
++	m.healthCheckDo(&mirror, mirrors.HTTP, file, size)
++	m.healthCheckDo(&mirror, mirrors.HTTPS, file, size)
++
++	return nil
++}
++
++func (m *monitor) healthCheckDo(mirror *mirrors.Mirror, proto mirrors.Protocol, file string, size int64) error {
++	// Format log output
++	format := "%-" + fmt.Sprintf("%d.%ds %-5s ", m.formatLongestID+4, m.formatLongestID+4, proto)
++
++	// Get URL according to the protocol requested
++	url := mirror.HttpURL
++	if proto == mirrors.HTTPS {
++		url = mirror.HttpsURL
++	}
++
++	// If no URL, mark mirror as down
++	if url == "" {
++		err := mirrors.MarkMirrorDown(m.redis, mirror.ID, proto, fmt.Sprintf("No %s URL", proto))
++		if err != nil {
++			log.Errorf(format+"Unable to mark mirror as down: %s", mirror.Name, err)
++		}
++		return nil
++	}
++
+ 	// Prepare the HTTP request
+-	req, err := http.NewRequest("HEAD", strings.TrimRight(mirror.HttpURL, "/")+file, nil)
++	req, err := http.NewRequest("HEAD", strings.TrimRight(url, "/")+file, nil)
+ 	req.Header.Set("User-Agent", userAgent)
+ 	req.Close = true
+ 
+@@ -506,7 +529,7 @@ func (m *monitor) healthCheck(mirror mirrors.Mirror) error {
+ 	go func() {
+ 		select {
+ 		case <-m.stop:
+-			log.Debugf("Aborting health-check for %s", mirror.HttpURL)
++			log.Debugf("Aborting health-check for %s", url)
+ 			cancel()
+ 		case <-ctx.Done():
+ 		}
+@@ -534,9 +557,9 @@ func (m *monitor) healthCheck(mirror mirrors.Mirror) error {
+ 		}
+ 		var err2 error
+ 		if strings.Contains(err.Error(), errRedirect.Error()) {
+-			err2 = mirrors.MarkMirrorDown(m.redis, mirror.ID, "Unauthorized redirect")
++			err2 = mirrors.MarkMirrorDown(m.redis, mirror.ID, proto, "Unauthorized redirect")
+ 		} else {
+-			err2 = mirrors.MarkMirrorDown(m.redis, mirror.ID, "Unreachable")
++			err2 = mirrors.MarkMirrorDown(m.redis, mirror.ID, proto, "Unreachable")
+ 		}
+ 		if err2 != nil {
+ 			log.Errorf(format+"Unable to mark mirror as down: %s", mirror.Name, err2)
+@@ -547,7 +570,7 @@ func (m *monitor) healthCheck(mirror mirrors.Mirror) error {
+ 
+ 	switch statusCode {
+ 	case 200:
+-		err = mirrors.MarkMirrorUp(m.redis, mirror.ID)
++		err = mirrors.MarkMirrorUp(m.redis, mirror.ID, proto)
+ 		if err != nil {
+ 			log.Errorf(format+"Unable to mark mirror as up: %s", mirror.Name, err)
+ 		}
+@@ -558,7 +581,7 @@ func (m *monitor) healthCheck(mirror mirrors.Mirror) error {
+ 			log.Noticef(format+"Up! (%dms)", mirror.Name, elapsed/time.Millisecond)
+ 		}
+ 	case 404:
+-		err = mirrors.MarkMirrorDown(m.redis, mirror.ID, fmt.Sprintf("File not found %s (error 404)", file))
++		err = mirrors.MarkMirrorDown(m.redis, mirror.ID, proto, fmt.Sprintf("File not found %s (error 404)", file))
+ 		if err != nil {
+ 			log.Errorf(format+"Unable to mark mirror as down: %s", mirror.Name, err)
+ 		}
+@@ -570,7 +593,7 @@ func (m *monitor) healthCheck(mirror mirrors.Mirror) error {
+ 		}
+ 		log.Errorf(format+"Error: File %s not found (error 404)", mirror.Name, file)
+ 	default:
+-		err = mirrors.MarkMirrorDown(m.redis, mirror.ID, fmt.Sprintf("Got status code %d", statusCode))
++		err = mirrors.MarkMirrorDown(m.redis, mirror.ID, proto, fmt.Sprintf("Got status code %d", statusCode))
+ 		if err != nil {
+ 			log.Errorf(format+"Unable to mark mirror as down: %s", mirror.Name, err)
+ 		}
+diff --git a/mirrors/logs.go b/mirrors/logs.go
+index 3ed9cc5..31c00b5 100644
+--- a/mirrors/logs.go
++++ b/mirrors/logs.go
+@@ -174,28 +174,41 @@ func NewLogDisabled(id int) LogAction {
+ 
+ type LogStateChanged struct {
+ 	LogCommonAction
++	Proto  Protocol
+ 	Up     bool
+ 	Reason string
+ }
+ 
+ func (l *LogStateChanged) GetOutput() string {
++	var mirror string
++
++	switch l.Proto {
++	case HTTP:
++		mirror = "HTTP mirror"
++	case HTTPS:
++		mirror = "HTTPS mirror"
++	default:
++		mirror = "Mirror"
++	}
++
+ 	if l.Up == false {
+ 		if len(l.Reason) == 0 {
+-			return "Mirror is down"
++			return mirror + " is down"
+ 		}
+-		return "Mirror is down: " + l.Reason
++		return mirror + " is down: " + l.Reason
+ 	}
+ 
+-	return "Mirror is up"
++	return mirror + " is up"
+ }
+ 
+-func NewLogStateChanged(id int, up bool, reason string) LogAction {
++func NewLogStateChanged(id int, proto Protocol, up bool, reason string) LogAction {
+ 	return &LogStateChanged{
+ 		LogCommonAction: LogCommonAction{
+ 			Type:      LOGTYPE_STATECHANGED,
+ 			MirrorID:  id,
+ 			Timestamp: time.Now(),
+ 		},
++		Proto:  proto,
+ 		Up:     up,
+ 		Reason: reason,
+ 	}
+diff --git a/mirrors/mirrors.go b/mirrors/mirrors.go
+index 5585048..68d1d37 100644
+--- a/mirrors/mirrors.go
++++ b/mirrors/mirrors.go
+@@ -19,6 +19,27 @@ import (
+ 	"github.com/gomodule/redigo/redis"
+ )
+ 
++type Protocol uint
++
++const (
++	UNDEFINED Protocol = iota
++	HTTP
++	HTTPS
++)
++
++func (p Protocol) String() string {
++	switch p {
++	case UNDEFINED:
++		return "undefined"
++	case HTTP:
++		return "HTTP"
++	case HTTPS:
++		return "HTTPS"
++	default:
++		return "unknown"
++	}
++}
++
+ // Mirror is the structure representing all the information about a mirror
+ type Mirror struct {
+ 	ID                          int              `redis:"ID" yaml:"-"`
+@@ -203,30 +224,51 @@ func SetMirrorEnabled(r *database.Redis, id int, state bool) error {
+ 	return err
+ }
+ 
+-// MarkMirrorUp marks the given mirror as up
+-func MarkMirrorUp(r *database.Redis, id int) error {
+-	return SetMirrorState(r, id, true, "")
++// MarkMirrorUp marks the given mirror as up for a given protocol
++func MarkMirrorUp(r *database.Redis, id int, proto Protocol) error {
++	return SetMirrorState(r, id, proto, true, "")
+ }
+ 
+-// MarkMirrorDown marks the given mirror as down
+-func MarkMirrorDown(r *database.Redis, id int, reason string) error {
+-	return SetMirrorState(r, id, false, reason)
++// MarkMirrorDown marks the given mirror as down for a given protocol
++func MarkMirrorDown(r *database.Redis, id int, proto Protocol, reason string) error {
++	return SetMirrorState(r, id, proto, false, reason)
+ }
+ 
+-// SetMirrorState sets the state of a mirror to up or down with an optional reason
+-func SetMirrorState(r *database.Redis, id int, state bool, reason string) error {
++// SetMirrorState sets the state of a mirror to up or down,
++// over HTTP or HTTPS, with an optional reason.
++func SetMirrorState(r *database.Redis, id int, proto Protocol, state bool, reason string) error {
+ 	conn := r.Get()
+ 	defer conn.Close()
+ 
+ 	key := fmt.Sprintf("MIRROR_%d", id)
+ 
+-	previousState, err := redis.Bool(conn.Do("HGET", key, "up"))
++	var urlField, upField, reasonField string
++
++	switch proto {
++	case HTTP:
++		urlField, upField, reasonField = "http", "httpUp", "httpDownReason"
++	case HTTPS:
++		urlField, upField, reasonField = "https", "httpsUp", "httpsDownReason"
++	default:
++		return fmt.Errorf("Unknown protocol: %s", proto)
++	}
++
++	previousState, err := redis.Bool(conn.Do("HGET", key, upField))
+ 	if err != nil && err != redis.ErrNil {
+ 		return err
+ 	}
+ 
++	// Refuse to set the state to up if the URL is empty
++	url, err := redis.String(conn.Do("HGET", key, urlField))
++	if err != nil {
++		return err
++	}
++	if url == "" && state == true {
++		return fmt.Errorf("Can't set mirror up for protocol %s: no URL", proto)
++	}
++
+ 	var args []interface{}
+-	args = append(args, key, "up", state, "excludeReason", reason)
++	args = append(args, key, upField, state, reasonField, reason)
+ 
+ 	if state != previousState {
+ 		args = append(args, "stateSince", time.Now().Unix())
+@@ -239,7 +281,7 @@ func SetMirrorState(r *database.Redis, id int, state bool, reason string) error
+ 		database.Publish(conn, database.MIRROR_UPDATE, strconv.Itoa(id))
+ 
+ 		if state != previousState {
+-			PushLog(r, NewLogStateChanged(id, state, reason))
++			PushLog(r, NewLogStateChanged(id, proto, state, reason))
+ 		}
+ 	}
+ 
+diff --git a/mirrors/mirrors_test.go b/mirrors/mirrors_test.go
+index aa99fa2..e92a4d0 100644
+--- a/mirrors/mirrors_test.go
++++ b/mirrors/mirrors_test.go
+@@ -458,7 +458,10 @@ func TestSetMirrorEnabled(t *testing.T) {
+ func TestMarkMirrorUp(t *testing.T) {
+ 	_, conn := PrepareRedisTest()
+ 
+-	if err := MarkMirrorUp(conn, 1); err == nil {
++	if err := MarkMirrorUp(conn, 1, HTTP); err == nil {
++		t.Fatalf("Error expected but nil returned")
++	}
++	if err := MarkMirrorUp(conn, 1, HTTPS); err == nil {
+ 		t.Fatalf("Error expected but nil returned")
+ 	}
+ }
+@@ -466,7 +469,10 @@ func TestMarkMirrorUp(t *testing.T) {
+ func TestMarkMirrorDown(t *testing.T) {
+ 	_, conn := PrepareRedisTest()
+ 
+-	if err := MarkMirrorDown(conn, 1, "test1"); err == nil {
++	if err := MarkMirrorDown(conn, 1, HTTP, "test1"); err == nil {
++		t.Fatalf("Error expected but nil returned")
++	}
++	if err := MarkMirrorDown(conn, 1, HTTPS, "test1"); err == nil {
+ 		t.Fatalf("Error expected but nil returned")
+ 	}
+ }
+@@ -474,7 +480,7 @@ func TestMarkMirrorDown(t *testing.T) {
+ func TestSetMirrorState(t *testing.T) {
+ 	mock, conn := PrepareRedisTest()
+ 
+-	if err := SetMirrorState(conn, 1, true, "test1"); err == nil {
++	if err := SetMirrorState(conn, 1, HTTP, true, "test1"); err == nil {
+ 		t.Fatalf("Error expected but nil returned")
+ 	}
+ 
+@@ -487,7 +493,7 @@ func TestSetMirrorState(t *testing.T) {
+ 	cmdStateSince := mock.Command("HMSET", "MIRROR_1", "httpUp", true, "httpDownReason", "test1", "stateSince", redigomock.NewAnyInt()).Expect("ok")
+ 	cmdState := mock.Command("HMSET", "MIRROR_1", "httpUp", true, "httpDownReason", "test2").Expect("ok")
+ 
+-	if err := SetMirrorState(conn, 1, true, "test1"); err != nil {
++	if err := SetMirrorState(conn, 1, HTTP, true, "test1"); err != nil {
+ 		t.Fatalf("Unexpected error: %s", err)
+ 	}
+ 
+@@ -511,7 +517,7 @@ func TestSetMirrorState(t *testing.T) {
+ 
+ 	/* Set HTTP mirror up a second time */
+ 
+-	if err := SetMirrorState(conn, 1, true, "test2"); err != nil {
++	if err := SetMirrorState(conn, 1, HTTP, true, "test2"); err != nil {
+ 		t.Fatalf("Unexpected error: %s", err)
+ 	}
+ 
+@@ -529,7 +535,7 @@ func TestSetMirrorState(t *testing.T) {
+ 	cmdHttpUrl = mock.Command("HGET", "MIRROR_1", "http").Expect("http://m1.mirror")
+ 	cmdStateSince = mock.Command("HMSET", "MIRROR_1", "httpUp", false, "httpDownReason", "test3", "stateSince", redigomock.NewAnyInt()).Expect("ok")
+ 
+-	if err := SetMirrorState(conn, 1, false, "test3"); err != nil {
++	if err := SetMirrorState(conn, 1, HTTP, false, "test3"); err != nil {
+ 		t.Fatalf("Unexpected error: %s", err)
+ 	}
+ 

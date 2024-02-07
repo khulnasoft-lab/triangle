@@ -1,0 +1,67 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Fri, 17 Nov 2023 11:01:16 +0700
+Subject: Dual: selection: Assign the mirror copy (rather than orig) in mlist
+
+This is a subtle change of no consequence in the current version of the
+code, but that is needed for the next commit.
+
+The loop here use copies, as `mslist` is a slice of mirrors (and not of
+mirror pointers), hence `for i, m := range mlist` creates copies. In
+other words, `m` is a copy of `mlist[i]`.
+
+That brings a question: when we save the mirror in one of the result
+slices (`mlist` for a mirror that is selected, and `excluded` for a
+mirror that is excluded), what should we store in the slice? The
+original `mlist[i]`, or the (potentially modified) copy `m`?
+
+As we can see, in the `excluded` slice, we clearly use `m`, in the line:
+
+    excluded = append(excluded, m)
+
+This is needed, as `m` is modified to include the ExcludeReason, for
+example in `m.ExcludeReason = "Invalid URL"`.
+
+However, when assigning to `mlist`, we use the original (unmodified)
+mirror:
+
+    mlist[safeIndex] = mlist[i]
+
+Is there a good reason to use the original, rather than the copy? After
+a careful read of the code, we can see that it doesn't matter: when a
+mirror is selected (hence added to `mlist`), it has not been modified.
+So, at this point, `mlist[safeIndex] = mlist[i]` is equivalent to
+`mlist[safeIndex] = m`.
+
+So why change it? This in preparation for the next commit, where we'll
+introduce the field `m.SelectedProtocol`. This new field will be set for
+mirrors that are selected. So, starting next commit, we'll modify the
+copy of the mirror in both cases (selected or excluded), so we must save
+the copy (rather than the orig) in both cases as well.
+
+We do the change now, as it's easier to review.
+---
+ http/selection.go | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/http/selection.go b/http/selection.go
+index b60089a..00b9606 100644
+--- a/http/selection.go
++++ b/http/selection.go
+@@ -59,7 +59,7 @@ func (h DefaultEngine) Selection(ctx *Context, cache *mirrors.Cache, fileInfo *f
+ 	excluded = make([]mirrors.Mirror, 0, len(mlist))
+ 	var closestMirror float32
+ 	var farthestMirror float32
+-	for i, m := range mlist {
++	for _, m := range mlist {
+ 		// Does it support http? Is it well formated?
+ 		if !strings.HasPrefix(m.HttpURL, "http://") && !strings.HasPrefix(m.HttpURL, "https://") {
+ 			m.ExcludeReason = "Invalid URL"
+@@ -139,7 +139,7 @@ func (h DefaultEngine) Selection(ctx *Context, cache *mirrors.Cache, fileInfo *f
+ 		if m.Distance > farthestMirror {
+ 			farthestMirror = m.Distance
+ 		}
+-		mlist[safeIndex] = mlist[i]
++		mlist[safeIndex] = m
+ 		safeIndex++
+ 		continue
+ 	discard:

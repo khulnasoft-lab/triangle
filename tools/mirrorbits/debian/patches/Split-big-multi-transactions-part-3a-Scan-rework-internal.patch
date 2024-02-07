@@ -1,0 +1,129 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Tue, 10 Oct 2023 14:38:06 +0700
+Subject: Split big multi transactions - part 3a: Scan() (rework internals)
+
+Rework how the files are committed to the db.
+
+Before: we'd create a MULTI, the scan. The scan function iterates over
+the scan results and call ScannerAddFile(), which would send commands to
+Redis. In case of failure, we'd discard the MULTI transaction, remove
+the temporary key, and bail out. In case of success, we'd finally call
+ScannerCommit() which was just about calling EXEC to execute the MULTI
+transaction.
+
+With this commit: we now keep an internal slice of filedata. Calling
+ScannerAddFile() just adds a filedata to the slice. In case of failure,
+it's easier, we can just return. In case of success, it's now the
+ScannerCommit() function that does the bulk of the job: sent a MULTI
+command, then iterate on the files to enqueue all the commands, and
+finally EXEC.
+
+This change of behaviour is needed for what comes next: breaking the
+MULTI transaction in chunks.
+
+Forwarded: https://github.com/etix/mirrorbits/pull/148
+---
+ scan/scan.go | 50 +++++++++++++++++++++++++-------------------------
+ 1 file changed, 25 insertions(+), 25 deletions(-)
+
+diff --git a/scan/scan.go b/scan/scan.go
+index 9611794..d837d0e 100644
+--- a/scan/scan.go
++++ b/scan/scan.go
+@@ -54,6 +54,7 @@ type scan struct {
+ 	conn        redis.Conn
+ 	mirrorid    int
+ 	filesTmpKey string
++	files       []filedata
+ 	count       int64
+ }
+ 
+@@ -82,6 +83,7 @@ func Scan(typ core.ScannerType, r *database.Redis, c *mirrors.Cache, url string,
+ 		mirrorid: id,
+ 		conn:     conn,
+ 		cache:    c,
++		files:    make([]filedata, 0, 1000),
+ 	}
+ 
+ 	var scanner Scanner
+@@ -128,28 +130,24 @@ func Scan(typ core.ScannerType, r *database.Redis, c *mirrors.Cache, url string,
+ 		}
+ 	}(&err)
+ 
+-	conn.Send("MULTI")
+-
+ 	filesKey := fmt.Sprintf("MIRRORFILES_%d", id)
+ 	s.filesTmpKey = fmt.Sprintf("MIRRORFILESTMP_%d", id)
+ 
+ 	// Remove any left over
+-	conn.Send("DEL", s.filesTmpKey)
++	_, err = conn.Do("DEL", s.filesTmpKey)
++	if err != nil {
++		return nil, err
++	}
+ 
++	// Scan the mirror
+ 	var precision core.Precision
+ 	precision, err = scanner.Scan(url, name, conn, stop)
+ 	if err != nil {
+-		// Discard MULTI
+-		s.ScannerDiscard()
+-
+-		// Remove the temporary key
+-		conn.Do("DEL", s.filesTmpKey)
+-
+ 		log.Errorf("[%s] %s", name, err.Error())
+ 		return nil, err
+ 	}
+ 
+-	// Exec multi
++	// Commit changes
+ 	s.ScannerCommit()
+ 
+ 	// Get the list of files no more present on this mirror
+@@ -224,28 +222,30 @@ func Scan(typ core.ScannerType, r *database.Redis, c *mirrors.Cache, url string,
+ 
+ func (s *scan) ScannerAddFile(f filedata) {
+ 	s.count++
++	s.files = append(s.files, f)
++}
+ 
+-	// Add all the files to a temporary key
+-	s.conn.Send("SADD", s.filesTmpKey, f.path)
++func (s *scan) ScannerCommit() error {
++	s.conn.Send("MULTI")
+ 
+-	// Mark the file as being supported by this mirror
+-	rk := fmt.Sprintf("FILEMIRRORS_%s", f.path)
+-	s.conn.Send("SADD", rk, s.mirrorid)
++	for _, f := range s.files {
++		// Add all the files to a temporary key
++		s.conn.Send("SADD", s.filesTmpKey, f.path)
+ 
+-	// Save the size of the current file found on this mirror
+-	ik := fmt.Sprintf("FILEINFO_%d_%s", s.mirrorid, f.path)
+-	s.conn.Send("HMSET", ik, "size", f.size, "modTime", f.modTime)
++		// Mark the file as being supported by this mirror
++		rk := fmt.Sprintf("FILEMIRRORS_%s", f.path)
++		s.conn.Send("SADD", rk, s.mirrorid)
+ 
+-	// Publish update
+-	database.SendPublish(s.conn, database.MIRROR_FILE_UPDATE, fmt.Sprintf("%d %s", s.mirrorid, f.path))
+-}
++		// Save the size of the current file found on this mirror
++		ik := fmt.Sprintf("FILEINFO_%d_%s", s.mirrorid, f.path)
++		s.conn.Send("HMSET", ik, "size", f.size, "modTime", f.modTime)
+ 
+-func (s *scan) ScannerDiscard() {
+-	s.conn.Do("DISCARD")
+-}
++		// Publish update
++		database.SendPublish(s.conn, database.MIRROR_FILE_UPDATE, fmt.Sprintf("%d %s", s.mirrorid, f.path))
++	}
+ 
+-func (s *scan) ScannerCommit() error {
+ 	_, err := s.conn.Do("EXEC")
++
+ 	return err
+ }
+ 

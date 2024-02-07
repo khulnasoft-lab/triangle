@@ -1,0 +1,143 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Mon, 9 Oct 2023 16:55:21 +0700
+Subject: Split big multi transactions - part 2: ScanSource()
+
+Remove the variable count, instead we use this variable only to iterate.
+Hence in the final log, we replace 'count' with 'len(sourceFiles)'.
+
+With this commit, we break two MULTI transactions, so let's look at
+those in details:
+
+The first MULTI transaction is:
+- DEL FILES_TMP
+- loop on files:
+  - SADD FILES_TMP <path>
+
+I think there's no problem in breaking this in chunks, as we just
+iterate over a temporary key. It doesn't matter if the program is
+interrupted and we leave a partially updated key behind.
+
+Then comes a lone SDIFF FILES FILES_TMP command, that gives us the list
+of files to remove.
+
+The second MULTI transaction is:
+- loop on files:
+  - HMSET FILE_<path>
+  - publish FILE_UPDATE <path>
+- loop on removed files:
+  - DEL FILE_<path>
+  - publish FILE_UPDATE <path>
+- RENAME FILES_TMP FILES
+
+I don't think it's really needed to have all of that in a single MULTI
+transaction, i *think* it's Ok to break the two loops in chunks. What
+really matters is that we rename the keys FILES_TMP to FILES in the
+last step.
+
+Forwarded: https://github.com/etix/mirrorbits/pull/148
+---
+ scan/scan.go | 56 ++++++++++++++++++++++++++++++++++++++++++++------------
+ 1 file changed, 44 insertions(+), 12 deletions(-)
+
+diff --git a/scan/scan.go b/scan/scan.go
+index 621a6df..9611794 100644
+--- a/scan/scan.go
++++ b/scan/scan.go
+@@ -504,16 +504,24 @@ func ScanSource(r *database.Redis, forceRehash bool, stop <-chan struct{}) (err
+ 
+ 	defer lock.Release()
+ 
+-	conn.Send("MULTI")
+-
+ 	// Remove any left over
+-	conn.Send("DEL", "FILES_TMP")
++	_, err = conn.Do("DEL", "FILES_TMP")
++	if err != nil {
++		return err
++	}
+ 
+ 	// Add all the files to a temporary key
+-	count := 0
+-	for _, e := range sourceFiles {
++	conn.Send("MULTI")
++	for count, e := range sourceFiles {
+ 		conn.Send("SADD", "FILES_TMP", e.path)
+-		count++
++
++		if count > 0 && count % database.RedisMultiMaxSize == 0 {
++			_, err := conn.Do("EXEC")
++			if err != nil {
++				return err
++			}
++			conn.Send("MULTI")
++		}
+ 	}
+ 
+ 	_, err = conn.Do("EXEC")
+@@ -529,7 +537,7 @@ func ScanSource(r *database.Redis, forceRehash bool, stop <-chan struct{}) (err
+ 
+ 	// Create/Update the files' hash keys with the fresh infos
+ 	conn.Send("MULTI")
+-	for _, e := range sourceFiles {
++	for count, e := range sourceFiles {
+ 		conn.Send("HMSET", fmt.Sprintf("FILE_%s", e.path),
+ 			"size", e.size,
+ 			"modTime", e.modTime,
+@@ -539,28 +547,52 @@ func ScanSource(r *database.Redis, forceRehash bool, stop <-chan struct{}) (err
+ 
+ 		// Publish update
+ 		database.SendPublish(conn, database.FILE_UPDATE, e.path)
++
++		if count > 0 && count % database.RedisMultiMaxSize == 0 {
++			_, err := conn.Do("EXEC")
++			if err != nil {
++				return err
++			}
++			conn.Send("MULTI")
++		}
++	}
++
++	_, err = conn.Do("EXEC")
++	if err != nil {
++		return err
+ 	}
+ 
+ 	// Remove old keys
+ 	if len(toremove) > 0 {
+-		for _, e := range toremove {
++		conn.Send("MULTI")
++		for count, e := range toremove {
+ 			conn.Send("DEL", fmt.Sprintf("FILE_%s", e))
+ 
+ 			// Publish update
+ 			database.SendPublish(conn, database.FILE_UPDATE, fmt.Sprintf("%s", e))
++
++			if count > 0 && count % database.RedisMultiMaxSize == 0 {
++				_, err = conn.Do("EXEC")
++				if err != nil {
++					return err
++				}
++				conn.Send("MULTI")
++			}
++		}
++		_, err = conn.Do("EXEC")
++		if err != nil {
++			return err
+ 		}
+ 	}
+ 
+ 	// Finally rename the temporary sets containing the list
+ 	// of files to the production key
+-	conn.Send("RENAME", "FILES_TMP", "FILES")
+-
+-	_, err = conn.Do("EXEC")
++	_, err = conn.Do("RENAME", "FILES_TMP", "FILES")
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+-	log.Infof("[source] Scanned %d files", count)
++	log.Infof("[source] Scanned %d files", len(sourceFiles))
+ 
+ 	return nil
+ }

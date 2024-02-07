@@ -1,0 +1,210 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Fri, 17 Nov 2023 11:18:52 +0700
+Subject: Dual: mirrors, pagerenderer, selection: Rework mirror selection
+
+In this commit, we introduce a SelectedProtocol in the mirrors struct.
+The best way to look at it is to look at mirrors/mirrors.go and at
+http/pagerenderer.go.
+
+It is needed for the case where neither HTTP or HTTPS is forced (ie. the
+incoming request was over HTTP, so mirrorbits will happily redirect to
+either HTTP or HTTPS, depending on what's available). If ever a mirror
+provides a HttpURL AND a HttpsURL, we need to remember which URL was
+selected, so that the code in http/pagerenderer.go is able to correctly
+build the redirections.
+
+Then the second part of this commit is the refactoring in
+http/selection.go, to take into account the fact that a mirror can now
+have a HTTP and a HTTPS URL. This is rather dumb code, easy to read.
+---
+ http/pagerenderer.go |  26 ++++++++++++-
+ http/selection.go    | 101 +++++++++++++++++++++++++++++++++++++++++++--------
+ mirrors/mirrors.go   |   1 +
+ 3 files changed, 111 insertions(+), 17 deletions(-)
+
+diff --git a/http/pagerenderer.go b/http/pagerenderer.go
+index d7ad9da..bd80045 100644
+--- a/http/pagerenderer.go
++++ b/http/pagerenderer.go
+@@ -87,12 +87,14 @@ func (w *RedirectRenderer) Write(ctx *Context, results *mirrors.Results) (status
+ 				if len(m.CountryFields) > 0 {
+ 					countryCode = strings.ToLower(m.CountryFields[0])
+ 				}
+-				ctx.ResponseWriter().Header().Add("Link", fmt.Sprintf("<%s>; rel=duplicate; pri=%d; geo=%s", m.HttpURL+path, i+1, countryCode))
++				url := redirect(&m, path)
++				ctx.ResponseWriter().Header().Add("Link", fmt.Sprintf("<%s>; rel=duplicate; pri=%d; geo=%s", url, i+1, countryCode))
+ 			}
+ 		}
+ 
+ 		// Finally issue the redirect
+-		http.Redirect(ctx.ResponseWriter(), ctx.Request(), results.MirrorList[0].HttpURL+path, http.StatusFound)
++		url := redirect(&results.MirrorList[0], path)
++		http.Redirect(ctx.ResponseWriter(), ctx.Request(), url, http.StatusFound)
+ 		return http.StatusFound, nil
+ 	}
+ 	// No mirror returned for this request
+@@ -100,6 +102,26 @@ func (w *RedirectRenderer) Write(ctx *Context, results *mirrors.Results) (status
+ 	return http.StatusNotFound, nil
+ }
+ 
++// redirect returns the redirected URL
++func redirect(mirror *mirrors.Mirror, path string) string {
++	switch mirror.SelectedProtocol {
++	case mirrors.HTTP:
++		return mirror.HttpURL + path
++	case mirrors.HTTPS:
++		return mirror.HttpsURL + path
++	default:
++		// At this point, there should be a selected protocol,
++		// otherwise it's likely that there's a bug in the code.
++		// In any case, no hard failure, return something, favor
++		// HTTP if ever both HTTP and HTTPS are available.
++		if mirror.HttpURL != "" {
++			return mirror.HttpURL + path
++		} else {
++			return mirror.HttpsURL + path
++		}
++	}
++}
++
+ // MirrorListRenderer is used to render the mirrorlist page using the HTML templates
+ type MirrorListRenderer struct{}
+ 
+diff --git a/http/selection.go b/http/selection.go
+index 00b9606..247f0c3 100644
+--- a/http/selection.go
++++ b/http/selection.go
+@@ -60,31 +60,70 @@ func (h DefaultEngine) Selection(ctx *Context, cache *mirrors.Cache, fileInfo *f
+ 	var closestMirror float32
+ 	var farthestMirror float32
+ 	for _, m := range mlist {
+-		// Does it support http? Is it well formated?
+-		if !strings.HasPrefix(m.HttpURL, "http://") && !strings.HasPrefix(m.HttpURL, "https://") {
+-			m.ExcludeReason = "Invalid URL"
+-			goto discard
+-		}
+ 		// Is it enabled?
+ 		if !m.Enabled {
+ 			m.ExcludeReason = "Disabled"
+ 			goto discard
+ 		}
+-		// Is it up?
+-		if !m.Up {
+-			if m.ExcludeReason == "" {
+-				m.ExcludeReason = "Down"
++
++		// Is the procol requested supported?
++		switch ctx.SecureOption() {
++		case WITHTLS:
++			// HTTPS explicitly requested
++			if m.HttpsURL != "" {
++				ok, reason := checkHTTPS(&m)
++				if ok {
++					m.SelectedProtocol = mirrors.HTTPS
++					break
++				}
++				m.ExcludeReason = reason
++			} else {
++				m.ExcludeReason = "No HTTPS URL"
+ 			}
+ 			goto discard
+-		}
+-		if ctx.SecureOption() == WITHTLS && !strings.HasPrefix(m.HttpURL, "https://") {
+-			m.ExcludeReason = "Not HTTPS"
++		case WITHOUTTLS:
++			// HTTP explicitly requested
++			if m.HttpURL != "" {
++				ok, reason := checkHTTP(&m)
++				if ok {
++					m.SelectedProtocol = mirrors.HTTP
++					break
++				}
++				m.ExcludeReason = reason
++			} else {
++				m.ExcludeReason = "No HTTP URL"
++			}
+ 			goto discard
+-		}
+-		if ctx.SecureOption() == WITHOUTTLS && strings.HasPrefix(m.HttpURL, "https://") {
+-			m.ExcludeReason = "Not HTTP"
++		default:
++			// Any protocol will do
++			var ok bool
++			var reason1, reason2 string
++			if m.HttpURL != "" {
++				ok, reason1 = checkHTTP(&m)
++				if ok {
++					m.SelectedProtocol = mirrors.HTTP
++					break
++				}
++			} else {
++				reason1 = "No HTTP URL"
++			}
++			if m.HttpsURL != "" {
++				ok, reason2 = checkHTTPS(&m)
++				if ok {
++					m.SelectedProtocol = mirrors.HTTPS
++					break
++				}
++			} else {
++				reason2 = "No HTTPS URL"
++			}
++			if reason1 == reason2 {
++				m.ExcludeReason = reason1
++			} else {
++				m.ExcludeReason = reason1 + " / " + reason2
++			}
+ 			goto discard
+ 		}
++
+ 		// Is it the same size / modtime as source?
+ 		if m.FileInfo != nil {
+ 			if checksize && m.FileInfo.Size != fileInfo.Size {
+@@ -270,3 +309,35 @@ func (h DefaultEngine) Selection(ctx *Context, cache *mirrors.Cache, fileInfo *f
+ 	}
+ 	return
+ }
++
++// checkHTTP returns (true, "") if the mirror can redirect over HTTP,
++// or (false, "reason why") if it can't.
++func checkHTTP(mirror *mirrors.Mirror) (ok bool, reason string) {
++	if !strings.HasPrefix(mirror.HttpURL, "http://") {
++		return false, "Invalid URL"
++	}
++	if !mirror.HttpUp {
++		if mirror.HttpDownReason == "" {
++			return false, "Down"
++		} else {
++			return false, mirror.HttpDownReason
++		}
++	}
++	return true, ""
++}
++
++// checkHTTPS returns (true, "") if the mirror can redirect over HTTPS,
++// or (false, "reason why") if it can't.
++func checkHTTPS(mirror *mirrors.Mirror) (ok bool, reason string) {
++	if !strings.HasPrefix(mirror.HttpsURL, "https://") {
++		return false, "Invalid URL"
++	}
++	if !mirror.HttpsUp {
++		if mirror.HttpsDownReason == "" {
++			return false, "Down"
++		} else {
++			return false, mirror.HttpsDownReason
++		}
++	}
++	return true, ""
++}
+diff --git a/mirrors/mirrors.go b/mirrors/mirrors.go
+index 99f7c22..53c52f9 100644
+--- a/mirrors/mirrors.go
++++ b/mirrors/mirrors.go
+@@ -87,6 +87,7 @@ type Mirror struct {
+ 
+ 	FileInfo *filesystem.FileInfo `redis:"-" json:"-" yaml:"-"` // Details of the requested file on this specific mirror
+ 	ExcludeReason string `redis:"-" json:",omitempty" yaml:"-"` // Reason why the mirror was excluded
++	SelectedProtocol Protocol `redis:"-" yaml:"-"` // Protocol selected for redirection
+ }
+ 
+ // Prepare must be called after retrieval from the database to reformat some values

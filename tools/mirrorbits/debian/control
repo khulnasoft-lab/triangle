@@ -1,0 +1,76 @@
+Source: mirrorbits
+Maintainer: Mirrorbits Maintainers <mirrorbits@packages.debian.org>
+Uploaders:
+ Arnaud Rebillout <arnaudr@kali.org>,
+Section: net
+Testsuite: autopkgtest-pkg-go
+Priority: optional
+Build-Depends:
+ bash-completion,
+ debhelper-compat (= 13),
+ dh-sequence-golang,
+ golang-any,
+ golang-github-coreos-go-systemd-dev,
+ golang-github-golang-protobuf-1-3-dev,
+ golang-github-gomodule-redigo-dev,
+ golang-github-howeyc-gopass-dev,
+ golang-github-op-go-logging-dev,
+ golang-github-oschwald-maxminddb-golang-dev,
+ golang-github-pkg-errors-dev,
+ golang-github-rafaeljusto-redigomock-dev,
+ golang-golang-x-net-dev,
+ golang-google-grpc-dev,
+ golang-gopkg-tylerb-graceful.v1-dev,
+ golang-gopkg-yaml.v3-dev,
+ protoc-gen-go-1-3,
+Standards-Version: 4.6.2
+Vcs-Browser: https://salsa.debian.org/debian/mirrorbits
+Vcs-Git: https://salsa.debian.org/debian/mirrorbits.git
+Homepage: https://github.com/etix/mirrorbits
+Rules-Requires-Root: no
+XS-Go-Import-Path: github.com/etix/mirrorbits
+
+Package: mirrorbits
+Architecture: any
+Depends:
+ adduser | systemd-sysusers,
+ redis,
+ ${misc:Depends},
+ ${shlibs:Depends},
+Recommends:
+ logrotate,
+ rsync,
+Suggests:
+ geoipupdate,
+Built-Using:
+ ${misc:Built-Using},
+Description: geographical download redirector
+ Mirrorbits is a geographical download redirector written in Go for
+ distributing files efficiently across a set of mirrors. It offers a simple and
+ economic way to create a Content Delivery Network layer using a pure software
+ stack. It is primarily designed for the distribution of large-scale
+ Open-Source projects with a lot of traffic.
+ .
+ Main Features:
+  * Blazing fast, can reach 8K QPS on a single laptop
+  * Easy to deploy and maintain, everything is packed in a single binary
+  * Automatic synchronization with the mirrors over rsync or FTP
+  * Response can be either JSON or HTTP redirect
+  * Support partial repositories
+  * Complete checksum / size control
+  * Realtime monitoring and reports
+  * Disable misbehaving mirrors without human intervention
+  * Realtime decision making based on location, AS number and defined rules
+  * Smart load-balancing over multiple mirrors in the same area to avoid
+    hotspots
+  * Ability to adjust the weight of each mirror
+  * Limit access to a country, region or ASN for any mirror
+  * Clustering (multiple mirrorbits instances)
+  * High-availability using redis-sentinel
+  * Automatically fix timezone offsets for broken mirrors
+  * Realtime statistics per file / mirror / date
+  * Realtime reconfiguration
+  * Seamless binary upgrade (aka zero downtime upgrade)
+  * Mirmon support
+  * Full IPv6 support
+  * more...

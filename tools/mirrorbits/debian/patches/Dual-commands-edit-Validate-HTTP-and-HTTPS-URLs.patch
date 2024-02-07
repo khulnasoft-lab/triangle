@@ -1,0 +1,80 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 10:59:54 +0700
+Subject: Dual: commands: edit: Validate HTTP and HTTPS URLs
+
+This commit adds validation of HttpURL and HttpsURL after a mirror has
+been edited. It's the same validation as what was introduced in the
+previous command, for the 'add' command.
+
+In an ideal world, this code wouldn't be duplicated...
+---
+ cli/commands.go | 49 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/cli/commands.go b/cli/commands.go
+index 8d8d671..1cfd52e 100644
+--- a/cli/commands.go
++++ b/cli/commands.go
+@@ -751,6 +751,17 @@ reopen:
+ 
+ 	mirror.Comment = comment
+ 
++	// Do some sanity checks
++	err = ValidateMirror(mirror)
++	if err != nil {
++		switch reopen(err) {
++		case true:
++			goto reopen
++		case false:
++			return nil
++		}
++	}
++
+ 	ctx, cancel = context.WithTimeout(context.Background(), defaultRPCTimeout)
+ 	defer cancel()
+ 	m, err := rpc.MirrorToRPC(mirror)
+@@ -779,6 +790,44 @@ reopen:
+ 	return nil
+ }
+ 
++func ValidateMirror(m *mirrors.Mirror) error {
++	if m.HttpURL == "" && m.HttpsURL == "" {
++		return errors.New("Either HttpURL or HttpsURL must be set")
++	}
++
++	httpHost := ""
++
++	if m.HttpURL != "" {
++		if !strings.HasPrefix(m.HttpURL, "http://") {
++			return errors.New("HttpURL must start with http://")
++		}
++		u, err := url.Parse(m.HttpURL)
++		if err != nil {
++			return errors.Wrap(err, "Can't parse url")
++		}
++		httpHost = u.Host
++	}
++
++	httpsHost := ""
++
++	if m.HttpsURL != "" {
++		if !strings.HasPrefix(m.HttpsURL, "https://") {
++			return errors.New("HttpsURL must start with https://")
++		}
++		u, err := url.Parse(m.HttpsURL)
++		if err != nil {
++			return errors.Wrap(err, "Can't parse url")
++		}
++		httpsHost = u.Host
++	}
++
++	if httpHost != "" && httpsHost != "" && httpHost != httpsHost {
++		return errors.New("HttpURL and HttpsURL must point to the same host")
++	}
++
++	return nil
++}
++
+ func (c *cli) CmdGeoupdate(args ...string) error {
+ 	cmd := SubCmd("geoupdate", "[IDENTIFIER]", "Update geolocation of a mirror")
+ 	force := cmd.Bool("f", false, "Never prompt for confirmation")

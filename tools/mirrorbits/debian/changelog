@@ -1,0 +1,100 @@
+mirrorbits (0.5.1+git20240203.4e34d9b+ds1-1+kaliprod2) bookworm; urgency=medium
+
+  * Update patch to apply after 9d80d387
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Tue, 06 Feb 2024 13:26:28 +0700
+
+mirrorbits (0.5.1+git20240203.4e34d9b+ds1-1+kaliprod1) bookworm; urgency=medium
+
+  * Add basic autopkgtests
+  * Install a sysusers.d(5) fragment to set up the system user
+  * Drop patches applied upstream
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Tue, 06 Feb 2024 10:48:41 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-4+kaliprod6) bookworm; urgency=medium
+
+  * Switch to gopkg.in/yaml.v3
+  * Add -h / -help flag for commands reload, upgrade and version
+  * Add bash completion
+  * Install bash completion from contrib
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Fri, 02 Feb 2024 21:27:33 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-4+kaliprod5) bookworm; urgency=medium
+
+  * Add patch series to fix outdated entries in LRU cache
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Fri, 08 Dec 2023 20:58:31 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-4+kaliprod4) bookworm; urgency=medium
+
+  * Update the patch series for dual HTTP/HTTPS support
+  * Fix fallback during selection
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Thu, 07 Dec 2023 14:28:46 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-4+kaliprod3) bookworm; urgency=medium
+
+  * Add copyright information for the geoip contrib script
+  * Prepend a 'v' to mirrorbits version
+  * Fix templates path
+  * Adust debian/gbp.conf for bookworm
+  * Also-reload-logs-on-SIGHUP-in-case-the-LogDir-option.patch
+  * Add-a-CLI-command-to-update-the-geolocation-of-a-mir.patch
+  * Add-a-contrib-script-to-delete-old-mirrorbits-stats.patch
+  * Install contrib/mirrorbits-* scripts
+  * Add-RelaxModTimeRules-config-option.patch
+  * Add the series of patches to split the big MULTI transactions
+  * Add the series of patches for dual HTTP/HTTPS support
+  * Prevent-yaml.Marshal-from-wrapping-long-lines.patch
+  * Add systemd services, drop example from contrib
+  * Add a logrotate config file
+  * Create the directory /etc/mirrorbits
+  * Update README.Debian
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Thu, 09 Nov 2023 21:39:48 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-4) unstable; urgency=medium
+
+  * Bump Standards-Version to 4.6.2 (no changes needed)
+  * Add a patch to investigate test failure on armel
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Fri, 14 Jul 2023 12:58:14 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-3) unstable; urgency=medium
+
+  * Depend on redis
+  * Recommend rsync
+  * Suggests geoipupdate
+  * Add patch to adjust the default location for GeoIP database
+  * Update dependency name: golang-yaml.v2-dev -> golang-gopkg-yaml.v2-dev
+  * Create mirrorbits system user
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Fri, 14 Jul 2023 08:40:51 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-2) unstable; urgency=medium
+
+  * Replace transitional golang-goprotobuf-dev package
+  * Drop patch aimed at compatibility with golang-goprotobuf-dev 1.5.x
+  * Fix FTBFS with libprotobuf-dev 3.21.9 (Closes: #1026674)
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Fri, 21 Apr 2023 11:20:56 +0700
+
+mirrorbits (0.5.1+git20220308.9189dc7+ds1-1) unstable; urgency=medium
+
+  * Drop patches, applied upstream
+  * Drop minor patch level from Standards Version
+  * Use dh-sequence-golang, drop --with from dh options
+  * Enable buildmode=pie for riscv64
+  * Update lintian overrides
+  * Add debian/clean to remove the systemd service file
+  * Add patch to meet requirements of golang-protobuf 1.5.x
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Mon, 18 Jul 2022 14:55:10 +0200
+
+mirrorbits (0.5.1+git20210123.eeea0e0+ds1-1) unstable; urgency=medium
+
+  * Initial release (Closes: #994039)
+
+ -- Arnaud Rebillout <arnaudr@kali.org>  Fri, 08 Oct 2021 15:47:32 +0200

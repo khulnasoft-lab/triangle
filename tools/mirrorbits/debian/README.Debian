@@ -1,0 +1,73 @@
+Get started
+-----------
+
+After installation, a mirrorbits systemd service is installed, however it's
+stopped and disabled, as there's no configuration for mirrorbits yet.
+
+Here's a very quick start:
+
+    # Copy the sample config
+    cp /usr/share/doc/mirrorbits/examples/mirrorbits.conf /etc/mirrorbits/
+
+    # Edit it
+    $EDITOR /etc/mirrorbits/mirrorbits.conf
+
+    # Start the service
+    systemctl start mirrorbits.service
+
+    # When all is good, don't forget to enable it
+    systemctl enable mirrorbits.service
+
+
+HTML templates & third-party assets
+-----------------------------------
+
+Mirrorbits provides statistics if the query `?mirrorlist` or `?mirrorstats` is
+appended at the end of the URL requested. By default, it returns an HTML page
+that fetches assets (javascript and fonts) from third-parties.
+
+Mirrorbits allows the system administrator to change this behavior though, and
+serve local assets instead. Here's how to.
+
+First, let's run the helper script that downloads all the assets needed. We
+assume that we'll save those in `/srv/SITE/js`.
+
+    mkdir /srv/SITE/js
+    /usr/share/mirrorbits/contrib/localjs/fetchfiles.sh /srv/SITE/js
+
+Then configure Mirrorbits to use it. Edit the file `/etc/mirrorbits.conf` and
+set `LocalJSPath: /srv/SITE/js`.
+
+Finally you will need to configure your web server to make sure it can serve
+the files located in `/srv/SITE/js`.
+
+
+Debugging
+---------
+
+To run mirrorbits in debug mode, you can create a drop-in file to set
+DAEMON_ARGS:
+
+    cat << EOF > /etc/systemd/system/mirrorbits.service.d/debug.conf
+    [Service]
+    Environment=DAEMON_ARGS=-debug
+    EOF
+
+
+Some notes regarding the systemd service
+----------------------------------------
+
+`Requires=redis.service` is not a good idea. It means that if ever redis goes
+down, mirrorbits goes down as well. However mirrorbits is able to operate
+without redis, it redirects requests to the fallback mirrors.
+
+By default mirrorbits writes its logs to stderr, so the most straightforward
+would be use systemd Standard{Output,Error}= directives and let systemd send
+the output to a log file. However there's a bit of a chicken-and-egg problem
+regarding the creation of the logs directory, as reported at
+https://github.com/systemd/systemd/issues/27591. So instead we use mirrorbits
+`-log` argument.
+
+`SystemCallFilter=~@resources` doesn't work, the program can't even start.
+This is due to Golang, since version 1.19 it calls setrlimit(2) at startup, cf.
+https://github.com/golang/go/commit/8427429c.

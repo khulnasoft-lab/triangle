@@ -1,0 +1,30 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 11:02:33 +0700
+Subject: Dual: commands: export: Also print the HTTPS URL
+
+---
+ cli/commands.go | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/cli/commands.go b/cli/commands.go
+index 1cfd52e..fd906fe 100644
+--- a/cli/commands.go
++++ b/cli/commands.go
+@@ -942,6 +942,7 @@ func (c *cli) CmdExport(args ...string) error {
+ 	cmd := SubCmd("export", "[format]", "Export the mirror database.\n\nAvailable formats: mirmon")
+ 	rsync := cmd.Bool("rsync", true, "Export rsync URLs")
+ 	http := cmd.Bool("http", true, "Export http URLs")
++	https := cmd.Bool("https", true, "Export https URLs")
+ 	ftp := cmd.Bool("ftp", true, "Export ftp URLs")
+ 	disabled := cmd.Bool("disabled", true, "Export disabled mirrors")
+ 
+@@ -985,6 +986,9 @@ func (c *cli) CmdExport(args ...string) error {
+ 		if *http == true && m.HttpURL != "" {
+ 			urls = append(urls, m.HttpURL)
+ 		}
++		if *https == true && m.HttpsURL != "" {
++			urls = append(urls, m.HttpsURL)
++		}
+ 		if *ftp == true && m.FtpURL != "" {
+ 			urls = append(urls, m.FtpURL)
+ 		}

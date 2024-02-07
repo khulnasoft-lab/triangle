@@ -1,0 +1,3 @@
+contrib/localjs/     usr/share/mirrorbits/contrib/
+contrib/mirrorbits-* usr/share/mirrorbits/contrib/
+templates/           usr/share/mirrorbits/

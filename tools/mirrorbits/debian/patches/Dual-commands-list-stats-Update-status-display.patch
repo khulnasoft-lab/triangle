@@ -1,0 +1,118 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 10:38:33 +0700
+Subject: Dual: commands: list/stats: Update status display
+
+Now that a mirror can have two URLs (HTTP and HTTPS), it's a bit less
+straightforward to decide if the mirror is up or down, and to display
+the state.
+
+A mirror is said to be "up" if:
+- it has two URLs, and both are up
+- it has only one URL, and it's up
+
+In order to display the state of the mirror: we still use up and down if
+ever the mirror is fully up or fully down. But in case it's up for one
+URL, and down on the other, we introduce the new state:
+
+    <http-state>/<https-state>
+
+Hence a mirror might be reported as:
+
+    up/down    <- up over HTTP, down over HTTPS
+    down/up    <- down over HTTP, up over HTTPS
+---
+ cli/commands.go | 58 ++++++++++++++++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 51 insertions(+), 7 deletions(-)
+
+diff --git a/cli/commands.go b/cli/commands.go
+index 2d3afab..a793ae9 100644
+--- a/cli/commands.go
++++ b/cli/commands.go
+@@ -206,7 +206,7 @@ func (c *cli) CmdList(args ...string) error {
+ 			}
+ 		}
+ 		if *down == true {
+-			if mirror.Up == true || mirror.Enabled == false {
++			if IsUp(mirror) || mirror.Enabled == false {
+ 				continue
+ 			}
+ 		}
+@@ -241,10 +241,8 @@ func (c *cli) CmdList(args ...string) error {
+ 		if *state == true {
+ 			if mirror.Enabled == false {
+ 				fmt.Fprintf(w, "\tdisabled")
+-			} else if mirror.Up == true {
+-				fmt.Fprintf(w, "\tup")
+ 			} else {
+-				fmt.Fprintf(w, "\tdown")
++				fmt.Fprintf(w, "\t%s", StatusString(mirror))
+ 			}
+ 			fmt.Fprintf(w, " \t(%s)", stateSince.Format(time.RFC1123))
+ 		}
+@@ -256,6 +254,54 @@ func (c *cli) CmdList(args ...string) error {
+ 	return nil
+ }
+ 
++func IsUp(m *rpc.Mirror) bool {
++	// Up over both HTTP and HTTPS?
++	if m.HttpUp == true && m.HttpsUp == true {
++		return true
++	}
++	// Up over HTTP, no HTTPS URL?
++	if m.HttpUp == true && m.HttpsURL == "" {
++		return true
++	}
++	// Up over HTTPS, no HTTP URL?
++	if m.HttpsUp == true && m.HttpURL == "" {
++		return true
++	}
++	return false
++}
++
++func StatusString(m *rpc.Mirror) string {
++	var http string
++	var https string
++
++	if m.HttpUp {
++		http = "up"
++	} else {
++		http = "down"
++	}
++
++	if m.HttpsUp {
++		https = "up"
++	} else {
++		https = "down"
++	}
++
++	// Same status for HTTP and HTTPS?
++	if m.HttpUp == m.HttpsUp {
++		return http
++	}
++	// Only HTTPS URL is set?
++	if m.HttpURL == "" {
++		return https
++	}
++	// Only HTTP URL is set?
++	if m.HttpsURL == "" {
++		return http
++	}
++	// Both HTTP and HTTPS URLs are set, and status differ
++	return fmt.Sprintf("%s/%s", http, https)
++}
++
+ func (c *cli) CmdAdd(args ...string) error {
+ 	cmd := SubCmd("add", "[OPTIONS] IDENTIFIER", "Add a new mirror")
+ 	http := cmd.String("http", "", "HTTP base URL")
+@@ -1013,10 +1059,8 @@ func (c *cli) CmdStats(args ...string) error {
+ 		fmt.Fprintf(w, "Identifier:\t%s\n", name)
+ 		if !reply.Mirror.Enabled {
+ 			fmt.Fprintf(w, "Status:\tdisabled\n")
+-		} else if reply.Mirror.Up {
+-			fmt.Fprintf(w, "Status:\tup\n")
+ 		} else {
+-			fmt.Fprintf(w, "Status:\tdown\n")
++			fmt.Fprintf(w, "Status:\t%s\n", StatusString(reply.Mirror))
+ 		}
+ 		fmt.Fprintf(w, "Download requests:\t%d\n", reply.Requests)
+ 		fmt.Fprint(w, "Bytes transferred:\t")

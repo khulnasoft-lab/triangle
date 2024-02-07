@@ -1,0 +1,23 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Tue, 10 Oct 2023 13:16:48 +0700
+Subject: Add missing error checking in scan.go
+
+Forwarded: https://github.com/etix/mirrorbits/pull/148
+---
+ scan/scan.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/scan/scan.go b/scan/scan.go
+index 06fb2c0..621a6df 100644
+--- a/scan/scan.go
++++ b/scan/scan.go
+@@ -523,6 +523,9 @@ func ScanSource(r *database.Redis, forceRehash bool, stop <-chan struct{}) (err
+ 
+ 	// Do a diff between the sets to get the removed files
+ 	toremove, err := redis.Values(conn.Do("SDIFF", "FILES", "FILES_TMP"))
++	if err != nil {
++		return err
++	}
+ 
+ 	// Create/Update the files' hash keys with the fresh infos
+ 	conn.Send("MULTI")

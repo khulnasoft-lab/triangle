@@ -1,0 +1,135 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Fri, 6 Oct 2023 17:15:09 +0700
+Subject: Add RelaxModTimeRules config option
+
+With this setting, files are allowed to be outdated on the mirrors, for
+at most MaxOutdated minutes. The filesize check is also disabled for
+those files.
+
+Use-case: for a Debian-like distribution, the metadata (ie.  the
+directory /dists) are updated in-place, so we must give time for mirrors
+to sync, and then for mirrorbits to be aware of the changes.
+
+Otherwise, as soon as the source is updated and scanned, Mirrorbits will
+go in fallback mode for all the files under /dists, since at this point,
+either mirrors didn't sync yet, either they did but Mirrorbits is not
+aware of it yet (as the interval to scan mirrors is higher than the
+interval to scan the source).
+
+Cf. https://github.com/etix/mirrorbits/issues/85 for more details.
+
+Forwarded: https://github.com/etix/mirrorbits/pull/147
+---
+ config/config.go  | 17 +++++++++++++++++
+ http/selection.go | 20 +++++++++++++++++---
+ mirrorbits.conf   | 10 ++++++++++
+ 3 files changed, 44 insertions(+), 3 deletions(-)
+
+diff --git a/config/config.go b/config/config.go
+index 283e720..c0a2e16 100644
+--- a/config/config.go
++++ b/config/config.go
+@@ -81,6 +81,7 @@ type Configuration struct {
+ 	CheckInterval           int        `yaml:"CheckInterval"`
+ 	RepositoryScanInterval  int        `yaml:"RepositoryScanInterval"`
+ 	MaxLinkHeaders          int        `yaml:"MaxLinkHeaders"`
++	RelaxModTimeRules       []relaxrule `yaml:"RelaxModTimeRules"`
+ 	FixTimezoneOffsets      bool       `yaml:"FixTimezoneOffsets"`
+ 	Hashes                  hashing    `yaml:"Hashes"`
+ 	DisallowRedirects       bool       `yaml:"DisallowRedirects"`
+@@ -111,6 +112,11 @@ type hashing struct {
+ 	MD5    bool `yaml:"MD5"`
+ }
+ 
++type relaxrule struct {
++	Prefix      string `yaml:"Prefix"`
++	MaxOutdated int    `yaml:"MaxOutdated"`
++}
++
+ // LoadConfig loads the configuration file if it has not yet been loaded
+ func LoadConfig() {
+ 	if config != nil {
+@@ -165,6 +171,17 @@ func ReloadConfig() error {
+ 	if c.RepositoryScanInterval < 0 {
+ 		c.RepositoryScanInterval = 0
+ 	}
++	for _, r := range c.RelaxModTimeRules {
++		if len(r.Prefix) == 0 {
++			return fmt.Errorf("RelaxModTimeRules.Prefix must be set")
++		}
++		if r.Prefix[0] != '/' {
++			return fmt.Errorf("RelaxModTimeRules.Prefix must start with a /")
++		}
++		if r.MaxOutdated <= 0 {
++			return fmt.Errorf("RelaxModTimeRules.MaxOutdated must be > 0")
++		}
++	}
+ 
+ 	if config != nil &&
+ 		(c.RedisAddress != config.RedisAddress ||
+diff --git a/http/selection.go b/http/selection.go
+index e4143b2..03d0bbb 100644
+--- a/http/selection.go
++++ b/http/selection.go
+@@ -41,6 +41,19 @@ func (h DefaultEngine) Selection(ctx *Context, cache *mirrors.Cache, fileInfo *f
+ 		return
+ 	}
+ 
++	// Check if a relax modtime rule applies
++	checksize := true
++	maxoutdated := time.Duration(0)
++	relaxrules := GetConfig().RelaxModTimeRules
++	for _, r := range relaxrules {
++		if !strings.HasPrefix(fileInfo.Path, r.Prefix) {
++			continue
++		}
++		maxoutdated = time.Duration(r.MaxOutdated) * time.Minute
++		checksize = false
++		break
++	}
++
+ 	// Filter
+ 	safeIndex := 0
+ 	excluded = make([]mirrors.Mirror, 0, len(mlist))
+@@ -74,7 +87,7 @@ func (h DefaultEngine) Selection(ctx *Context, cache *mirrors.Cache, fileInfo *f
+ 		}
+ 		// Is it the same size / modtime as source?
+ 		if m.FileInfo != nil {
+-			if m.FileInfo.Size != fileInfo.Size {
++			if checksize && m.FileInfo.Size != fileInfo.Size {
+ 				m.ExcludeReason = "File size mismatch"
+ 				goto discard
+ 			}
+@@ -85,8 +98,9 @@ func (h DefaultEngine) Selection(ctx *Context, cache *mirrors.Cache, fileInfo *f
+ 				}
+ 				mModTime = mModTime.Truncate(m.LastSuccessfulSyncPrecision.Duration())
+ 				lModTime := fileInfo.ModTime.Truncate(m.LastSuccessfulSyncPrecision.Duration())
+-				if !mModTime.Equal(lModTime) {
+-					m.ExcludeReason = fmt.Sprintf("Mod time mismatch (diff: %s)", lModTime.Sub(mModTime))
++				diff := lModTime.Sub(mModTime)
++				if diff < 0 || diff > maxoutdated {
++					m.ExcludeReason = fmt.Sprintf("Mod time mismatch (diff: %s)", diff)
+ 					goto discard
+ 				}
+ 			}
+diff --git a/mirrorbits.conf b/mirrorbits.conf
+index 1d223f4..aedacbc 100644
+--- a/mirrorbits.conf
++++ b/mirrorbits.conf
+@@ -103,6 +103,16 @@
+ ## Disable a mirror if an active file is missing (HTTP 404)
+ # DisableOnMissingFile: false
+ 
++## Relax the modtime check for some files.
++## With this setting, files are allowed to be outdated on the mirrors, for at
++## most MaxOutdated minutes. The filesize check is also disabled for those
++## files. Use-case: for a Debian-like distribution, the metadata (ie. the
++## directory /dists) are updated in-place, so we must give time for mirrors
++## to sync, and then for mirrorbits to be aware of the changes.
++# RelaxModTimeRules:
++#     - Prefix: /dists/
++#       MaxOutdated: 540
++
+ ## Adjust the weight/range of the geographic distribution
+ # WeightDistributionRange: 1.5
+ 

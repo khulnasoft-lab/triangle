@@ -1,0 +1,72 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Tue, 10 Oct 2023 14:51:07 +0700
+Subject: Split big multi transactions - part 3c: Scan() (split multi)
+
+With this commit we split two big multi transactions in chunks. Let's
+have a look at those in details.
+
+One was about removing the files to remove. I don't think it really
+matters if it's all done at once, or in several transaction.
+
+The other in ScannerCommit() is about committing all the files that were
+returned by the scan. Once again, I have the impression that it doesn't
+really matter if it's done all at once, or if the transaction is split
+in chunks.
+
+Forwarded: https://github.com/etix/mirrorbits/pull/148
+---
+ scan/scan.go | 21 +++++++++++++++++++--
+ 1 file changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/scan/scan.go b/scan/scan.go
+index 24d5cf5..97200fd 100644
+--- a/scan/scan.go
++++ b/scan/scan.go
+@@ -159,13 +159,21 @@ func Scan(typ core.ScannerType, r *database.Redis, c *mirrors.Cache, url string,
+ 	// Remove this mirror from the given file SET
+ 	if len(toremove) > 0 {
+ 		conn.Send("MULTI")
+-		for _, e := range toremove {
++		for count, e := range toremove {
+ 			log.Debugf("[%s] Removing %s from mirror", name, e)
+ 			conn.Send("SREM", fmt.Sprintf("FILEMIRRORS_%s", e), id)
+ 			conn.Send("DEL", fmt.Sprintf("FILEINFO_%d_%s", id, e))
++
+ 			// Publish update
+ 			database.SendPublish(conn, database.MIRROR_FILE_UPDATE, fmt.Sprintf("%d %s", id, e))
+ 
++			if count > 0 && count % database.RedisMultiMaxSize == 0 {
++				_, err = conn.Do("EXEC")
++				if err != nil {
++					return nil, err
++				}
++				conn.Send("MULTI")
++			}
+ 		}
+ 		_, err = conn.Do("EXEC")
+ 		if err != nil {
+@@ -226,7 +234,7 @@ func (s *scan) ScannerAddFile(f filedata) {
+ func (s *scan) ScannerCommit() error {
+ 	s.conn.Send("MULTI")
+ 
+-	for _, f := range s.files {
++	for count, f := range s.files {
+ 		// Add all the files to a temporary key
+ 		s.conn.Send("SADD", s.filesTmpKey, f.path)
+ 
+@@ -240,6 +248,15 @@ func (s *scan) ScannerCommit() error {
+ 
+ 		// Publish update
+ 		database.SendPublish(s.conn, database.MIRROR_FILE_UPDATE, fmt.Sprintf("%d %s", s.mirrorid, f.path))
++
++		// Execute the transaction if enough files were added
++		if count > 0 && count % database.RedisMultiMaxSize == 0 {
++			_, err := s.conn.Do("EXEC")
++			if err != nil {
++				return err
++			}
++			s.conn.Send("MULTI")
++		}
+ 	}
+ 
+ 	_, err := s.conn.Do("EXEC")

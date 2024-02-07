@@ -1,0 +1,41 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 10:33:53 +0700
+Subject: Dual: commands: list: Add a flag to print HTTPS URLs
+
+Add a flag -https to the list command, in order to print HTTPs URLs.
+---
+ cli/commands.go | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/cli/commands.go b/cli/commands.go
+index e151b78..2d3afab 100644
+--- a/cli/commands.go
++++ b/cli/commands.go
+@@ -140,6 +140,7 @@ func (d ByDate) Less(i, j int) bool { return d[i].StateSince.Seconds > d[j].Stat
+ func (c *cli) CmdList(args ...string) error {
+ 	cmd := SubCmd("list", "", "Get the list of mirrors")
+ 	http := cmd.Bool("http", false, "Print HTTP addresses")
++	https := cmd.Bool("https", false, "Print HTTPS addresses")
+ 	rsync := cmd.Bool("rsync", false, "Print rsync addresses")
+ 	ftp := cmd.Bool("ftp", false, "Print FTP addresses")
+ 	location := cmd.Bool("location", false, "Print the country and continent code")
+@@ -176,6 +177,9 @@ func (c *cli) CmdList(args ...string) error {
+ 	if *http == true {
+ 		fmt.Fprint(w, "\tHTTP ")
+ 	}
++	if *https == true {
++		fmt.Fprint(w, "\tHTTPS ")
++	}
+ 	if *rsync == true {
+ 		fmt.Fprint(w, "\tRSYNC ")
+ 	}
+@@ -217,6 +221,9 @@ func (c *cli) CmdList(args ...string) error {
+ 		if *http == true {
+ 			fmt.Fprintf(w, "\t%s ", mirror.HttpURL)
+ 		}
++		if *https == true {
++			fmt.Fprintf(w, "\t%s ", mirror.HttpsURL)
++		}
+ 		if *rsync == true {
+ 			fmt.Fprintf(w, "\t%s ", mirror.RsyncURL)
+ 		}

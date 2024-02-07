@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/default.mk
+
+PKG := github.com/etix/mirrorbits
+GO_LDFLAGS += -X $(PKG)/core.VERSION=v$(DEB_VERSION_UPSTREAM)
+GO_LDFLAGS += -X $(PKG)/core.BUILD=$(DEB_VERSION)
+GO_LDFLAGS += -X $(PKG)/config.TEMPLATES_PATH=/usr/share/mirrorbits/templates/
+ifeq (,$(filter $(DEB_BUILD_ARCH), mipsel mips64el))
+GO_BUILDFLAGS += -buildmode=pie
+endif
+
+%:
+	dh $@ --builddirectory=_build --buildsystem=golang --with=bash-completion
+
+execute_after_dh_auto_configure:
+	cd _build/src/$(PKG) && \
+	find -name "*.pb.go" -delete -printf "removed %p\n" && \
+	protoc -I rpc --go_out=plugins=grpc,Mgoogle/protobuf/empty.proto=github.com/golang/protobuf/ptypes/empty,Mgoogle/protobuf/timestamp.proto=github.com/golang/protobuf/ptypes/timestamp:rpc rpc/rpc.proto
+
+override_dh_auto_build:
+	dh_auto_build -- $(GO_BUILDFLAGS) -ldflags '$(GO_LDFLAGS)'
+
+override_dh_auto_test:
+	dh_auto_test  -- -ldflags '$(GO_LDFLAGS)'
+
+override_dh_auto_install:
+	dh_auto_install -- --no-source
+	# the below step is automatic with debhelper >= 14
+	dh_installsysusers
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start

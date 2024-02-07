@@ -1,0 +1,32 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 11:06:45 +0700
+Subject: Dual: scan/trace: Pick the right URL to retrieve the trace file
+
+If both HTTP and HTTPS URLs are set, we favor HTTPS. Given that we'll
+fetch a file and read its content, HTTPS is probably a better fit.
+---
+ scan/trace.go | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/scan/trace.go b/scan/trace.go
+index 7547369..5642e5c 100644
+--- a/scan/trace.go
++++ b/scan/trace.go
+@@ -78,8 +78,16 @@ func (t *Trace) GetLastUpdate(mirror mirrors.Mirror) error {
+ 
+ 	log.Debugf("Getting latest trace file for %s...", mirror.Name)
+ 
++	// Prepare the URL
++	var url string
++	if mirror.HttpsURL != "" {
++		url = utils.ConcatURL(mirror.HttpsURL, traceFile)
++	} else {
++		url = utils.ConcatURL(mirror.HttpURL, traceFile)
++	}
++
+ 	// Prepare the HTTP request
+-	req, err := http.NewRequest("GET", utils.ConcatURL(mirror.HttpURL, traceFile), nil)
++	req, err := http.NewRequest("GET", url, nil)
+ 	req.Header.Set("User-Agent", userAgent)
+ 	req.Close = true
+ 

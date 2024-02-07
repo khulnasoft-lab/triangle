@@ -1,0 +1,277 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 10:20:40 +0700
+Subject: Dual: Make changes to the data structures
+
+Overview of the changes (best seen in mirrors/mirrors.go):
+- Renamed fields:
+  - Up -> HttpUp
+  - ExcludeReason -> HttpDownReason
+- New fields:
+  - HttpsURL
+  - HttpsUp
+  - HttpsDownReason
+- ExcludeReason still exists, but it will be set only during mirror selection
+
+Before, HttpURL could be either a HTTP or HTTPS URL. And there was only
+one state (up/down), for that URL.
+
+Now, HttpURL is forced to be a HTTP URL, and we introduce a new field
+HttpsURL for HTTPS URL. Meaning: it's now possible to declare that a
+mirror supports both HTTP and HTTPS, hence the name "Dual" (for Dual
+HTTP/HTTPS) for this patch series.
+
+Consequently, we need to support:
+- two states: the mirror might be up/down over HTTP, and it might be
+  up/down over HTTPS
+- two "down reason": for example, the mirror might be down due to 404
+  over HTTP, and down due to an invalid TLS certificate over HTTPS
+
+Hence:
+- we inteoduce the new field HttpsURL
+- we rename 'Up' to 'HttpUp', and introduce a new field 'HttpsUp'
+- rename 'ExcludeReason' to 'HttpDownReason', and introduce a new
+  variable 'HttpsDownReason'
+
+This commit is a start:
+- changes in data structures
+- related code changes that are trivial
+---
+ mirrors/cache_test.go   |  8 ++++++--
+ mirrors/mirrors.go      |  8 ++++++--
+ mirrors/mirrors_test.go | 26 ++++++++++++++++++--------
+ rpc/rpc.go              |  4 ++++
+ rpc/rpc.proto           |  7 +++++--
+ rpc/utils.go            | 14 ++++++++++----
+ 6 files changed, 49 insertions(+), 18 deletions(-)
+
+diff --git a/mirrors/cache_test.go b/mirrors/cache_test.go
+index e02e1db..773c375 100644
+--- a/mirrors/cache_test.go
++++ b/mirrors/cache_test.go
+@@ -228,6 +228,7 @@ func TestCache_fetchMirror(t *testing.T) {
+ 		ID:             1,
+ 		Name:           "m1",
+ 		HttpURL:        "http://m1.mirror",
++		HttpsURL:       "https://m1.mirror",
+ 		RsyncURL:       "rsync://m1.mirror",
+ 		FtpURL:         "ftp://m1.mirror",
+ 		SponsorName:    "m1sponsor",
+@@ -247,7 +248,8 @@ func TestCache_fetchMirror(t *testing.T) {
+ 		Asnum:          444,
+ 		Comment:        "m1comment",
+ 		Enabled:        true,
+-		Up:             true,
++		HttpUp:         true,
++		HttpsUp:        true,
+ 	}
+ 
+ 	_, err := c.fetchMirror(testmirror.ID)
+@@ -259,6 +261,7 @@ func TestCache_fetchMirror(t *testing.T) {
+ 		"ID":            strconv.Itoa(testmirror.ID),
+ 		"name":          testmirror.Name,
+ 		"http":          testmirror.HttpURL,
++		"https":         testmirror.HttpsURL,
+ 		"rsync":         testmirror.RsyncURL,
+ 		"ftp":           testmirror.FtpURL,
+ 		"sponsorName":   testmirror.SponsorName,
+@@ -278,7 +281,8 @@ func TestCache_fetchMirror(t *testing.T) {
+ 		"asnum":         strconv.FormatInt(int64(testmirror.Asnum), 10),
+ 		"comment":       testmirror.Comment,
+ 		"enabled":       strconv.FormatBool(testmirror.Enabled),
+-		"up":            strconv.FormatBool(testmirror.Up),
++		"httpUp":        strconv.FormatBool(testmirror.HttpUp),
++		"httpsUp":       strconv.FormatBool(testmirror.HttpsUp),
+ 	})
+ 
+ 	m, err := c.fetchMirror(testmirror.ID)
+diff --git a/mirrors/mirrors.go b/mirrors/mirrors.go
+index e8c1d86..141ecbd 100644
+--- a/mirrors/mirrors.go
++++ b/mirrors/mirrors.go
+@@ -24,6 +24,7 @@ type Mirror struct {
+ 	ID                          int              `redis:"ID" yaml:"-"`
+ 	Name                        string           `redis:"name" yaml:"Name"`
+ 	HttpURL                     string           `redis:"http" yaml:"HttpURL"`
++	HttpsURL                    string           `redis:"https" yaml:"HttpsURL"`
+ 	RsyncURL                    string           `redis:"rsync" yaml:"RsyncURL"`
+ 	FtpURL                      string           `redis:"ftp" yaml:"FtpURL"`
+ 	SponsorName                 string           `redis:"sponsorName" yaml:"SponsorName"`
+@@ -44,8 +45,10 @@ type Mirror struct {
+ 	Asnum                       uint             `redis:"asnum" yaml:"ASNum"`
+ 	Comment                     string           `redis:"comment" yaml:"-"`
+ 	Enabled                     bool             `redis:"enabled" yaml:"Enabled"`
+-	Up                          bool             `redis:"up" json:"-" yaml:"-"`
+-	ExcludeReason               string           `redis:"excludeReason" json:",omitempty" yaml:"-"`
++	HttpUp                      bool             `redis:"httpUp" json:"-" yaml:"-"`
++	HttpsUp                     bool             `redis:"httpsUp" json:"-" yaml:"-"`
++	HttpDownReason              string           `redis:"httpDownReason" json:",omitempty" yaml:"-"`
++	HttpsDownReason             string           `redis:"httpsDownReason" json:",omitempty" yaml:"-"`
+ 	StateSince                  Time             `redis:"stateSince" json:",omitempty" yaml:"-"`
+ 	AllowRedirects              Redirects        `redis:"allowredirects" json:",omitempty" yaml:"AllowRedirects"`
+ 	TZOffset                    int64            `redis:"tzoffset" json:"-" yaml:"-"` // timezone offset in ms
+@@ -62,6 +65,7 @@ type Mirror struct {
+ 	LastModTime                 Time             `redis:"lastModTime" yaml:"-"`
+ 
+ 	FileInfo *filesystem.FileInfo `redis:"-" json:"-" yaml:"-"` // Details of the requested file on this specific mirror
++	ExcludeReason string `redis:"-" json:",omitempty" yaml:"-"` // Reason why the mirror was excluded
+ }
+ 
+ // Prepare must be called after retrieval from the database to reformat some values
+diff --git a/mirrors/mirrors_test.go b/mirrors/mirrors_test.go
+index 73949e2..aa99fa2 100644
+--- a/mirrors/mirrors_test.go
++++ b/mirrors/mirrors_test.go
+@@ -480,11 +480,12 @@ func TestSetMirrorState(t *testing.T) {
+ 
+ 	cmdPublish := mock.Command("PUBLISH", string(database.MIRROR_UPDATE), redigomock.NewAnyData()).Expect("ok")
+ 
+-	/* */
++	/* Set HTTP mirror up */
+ 
+-	cmdPreviousState := mock.Command("HGET", "MIRROR_1", "up").Expect(int64(0)).Expect(int64(1))
+-	cmdStateSince := mock.Command("HMSET", "MIRROR_1", "up", true, "excludeReason", "test1", "stateSince", redigomock.NewAnyInt()).Expect("ok")
+-	cmdState := mock.Command("HMSET", "MIRROR_1", "up", true, "excludeReason", "test2").Expect("ok")
++	cmdPreviousState := mock.Command("HGET", "MIRROR_1", "httpUp").Expect(int64(0)).Expect(int64(1))
++	cmdHttpUrl := mock.Command("HGET", "MIRROR_1", "http").Expect("http://m1.mirror")
++	cmdStateSince := mock.Command("HMSET", "MIRROR_1", "httpUp", true, "httpDownReason", "test1", "stateSince", redigomock.NewAnyInt()).Expect("ok")
++	cmdState := mock.Command("HMSET", "MIRROR_1", "httpUp", true, "httpDownReason", "test2").Expect("ok")
+ 
+ 	if err := SetMirrorState(conn, 1, true, "test1"); err != nil {
+ 		t.Fatalf("Unexpected error: %s", err)
+@@ -494,6 +495,10 @@ func TestSetMirrorState(t *testing.T) {
+ 		t.Fatalf("Previous state not tested")
+ 	}
+ 
++	if mock.Stats(cmdHttpUrl) < 1 {
++		t.Fatalf("Http url not tested")
++	}
++
+ 	if mock.Stats(cmdStateSince) < 1 {
+ 		t.Fatalf("New state not set")
+ 	} else if mock.Stats(cmdStateSince) > 1 {
+@@ -504,7 +509,7 @@ func TestSetMirrorState(t *testing.T) {
+ 		t.Fatalf("Event MIRROR_UPDATE not published")
+ 	}
+ 
+-	/* */
++	/* Set HTTP mirror up a second time */
+ 
+ 	if err := SetMirrorState(conn, 1, true, "test2"); err != nil {
+ 		t.Fatalf("Unexpected error: %s", err)
+@@ -518,10 +523,11 @@ func TestSetMirrorState(t *testing.T) {
+ 		t.Fatalf("Event MIRROR_UPDATE should be sent")
+ 	}
+ 
+-	/* */
++	/* Set HTTP mirror down */
+ 
+-	cmdPreviousState = mock.Command("HGET", "MIRROR_1", "up").Expect(int64(1))
+-	cmdStateSince = mock.Command("HMSET", "MIRROR_1", "up", false, "excludeReason", "test3", "stateSince", redigomock.NewAnyInt()).Expect("ok")
++	cmdPreviousState = mock.Command("HGET", "MIRROR_1", "httpUp").Expect(int64(1))
++	cmdHttpUrl = mock.Command("HGET", "MIRROR_1", "http").Expect("http://m1.mirror")
++	cmdStateSince = mock.Command("HMSET", "MIRROR_1", "httpUp", false, "httpDownReason", "test3", "stateSince", redigomock.NewAnyInt()).Expect("ok")
+ 
+ 	if err := SetMirrorState(conn, 1, false, "test3"); err != nil {
+ 		t.Fatalf("Unexpected error: %s", err)
+@@ -531,6 +537,10 @@ func TestSetMirrorState(t *testing.T) {
+ 		t.Fatalf("Previous state not tested")
+ 	}
+ 
++	if mock.Stats(cmdHttpUrl) < 1 {
++		t.Fatalf("Http url not tested")
++	}
++
+ 	if mock.Stats(cmdStateSince) < 1 {
+ 		t.Fatalf("New state not set")
+ 	} else if mock.Stats(cmdStateSince) > 1 {
+diff --git a/rpc/rpc.go b/rpc/rpc.go
+index 3097acc..d6dc588 100644
+--- a/rpc/rpc.go
++++ b/rpc/rpc.go
+@@ -452,6 +452,9 @@ func (c *CLI) setMirror(mirror *mirrors.Mirror) error {
+ 	if mirror.HttpURL != "" {
+ 		mirror.HttpURL = utils.NormalizeURL(mirror.HttpURL)
+ 	}
++	if mirror.HttpsURL != "" {
++		mirror.HttpsURL = utils.NormalizeURL(mirror.HttpsURL)
++	}
+ 	if mirror.RsyncURL != "" {
+ 		mirror.RsyncURL = utils.NormalizeURL(mirror.RsyncURL)
+ 	}
+@@ -465,6 +468,7 @@ func (c *CLI) setMirror(mirror *mirrors.Mirror) error {
+ 		"ID", mirror.ID,
+ 		"name", mirror.Name,
+ 		"http", mirror.HttpURL,
++		"https", mirror.HttpsURL,
+ 		"rsync", mirror.RsyncURL,
+ 		"ftp", mirror.FtpURL,
+ 		"sponsorName", mirror.SponsorName,
+diff --git a/rpc/rpc.proto b/rpc/rpc.proto
+index ca75e75..c380149 100644
+--- a/rpc/rpc.proto
++++ b/rpc/rpc.proto
+@@ -62,13 +62,16 @@ message Mirror {
+     uint32 Asnum = 21;
+     string Comment = 22;
+     bool Enabled = 23;
+-    bool Up = 24;
+-    string ExcludeReason = 25;
++    bool HttpUp = 24;
++    string HttpDownReason = 25;
+     google.protobuf.Timestamp StateSince = 26;
+     int32 AllowRedirects = 27;
+     google.protobuf.Timestamp LastSync = 28;
+     google.protobuf.Timestamp LastSuccessfulSync = 29;
+     google.protobuf.Timestamp LastModTime = 30;
++    string HttpsURL = 31;
++    bool HttpsUp = 32;
++    string HttpsDownReason = 33;
+ }
+ 
+ message MirrorListReply {
+diff --git a/rpc/utils.go b/rpc/utils.go
+index cf1463a..3e42842 100644
+--- a/rpc/utils.go
++++ b/rpc/utils.go
+@@ -29,6 +29,7 @@ func MirrorToRPC(m *mirrors.Mirror) (*Mirror, error) {
+ 		ID:                   int32(m.ID),
+ 		Name:                 m.Name,
+ 		HttpURL:              m.HttpURL,
++		HttpsURL:             m.HttpsURL,
+ 		RsyncURL:             m.RsyncURL,
+ 		FtpURL:               m.FtpURL,
+ 		SponsorName:          m.SponsorName,
+@@ -49,8 +50,10 @@ func MirrorToRPC(m *mirrors.Mirror) (*Mirror, error) {
+ 		Asnum:                uint32(m.Asnum),
+ 		Comment:              m.Comment,
+ 		Enabled:              m.Enabled,
+-		Up:                   m.Up,
+-		ExcludeReason:        m.ExcludeReason,
++		HttpUp:               m.HttpUp,
++		HttpsUp:              m.HttpsUp,
++		HttpDownReason:       m.HttpDownReason,
++		HttpsDownReason:      m.HttpsDownReason,
+ 		StateSince:           stateSince,
+ 		AllowRedirects:       int32(m.AllowRedirects),
+ 		LastSync:             lastSync,
+@@ -80,6 +83,7 @@ func MirrorFromRPC(m *Mirror) (*mirrors.Mirror, error) {
+ 		ID:                   int(m.ID),
+ 		Name:                 m.Name,
+ 		HttpURL:              m.HttpURL,
++		HttpsURL:             m.HttpsURL,
+ 		RsyncURL:             m.RsyncURL,
+ 		FtpURL:               m.FtpURL,
+ 		SponsorName:          m.SponsorName,
+@@ -100,8 +104,10 @@ func MirrorFromRPC(m *Mirror) (*mirrors.Mirror, error) {
+ 		Asnum:                uint(m.Asnum),
+ 		Comment:              m.Comment,
+ 		Enabled:              m.Enabled,
+-		Up:                   m.Up,
+-		ExcludeReason:        m.ExcludeReason,
++		HttpUp:               m.HttpUp,
++		HttpsUp:              m.HttpsUp,
++		HttpDownReason:       m.HttpDownReason,
++		HttpsDownReason:      m.HttpsDownReason,
+ 		StateSince:           mirrors.Time{}.FromTime(stateSince),
+ 		AllowRedirects:       mirrors.Redirects(m.AllowRedirects),
+ 		LastSync:             mirrors.Time{}.FromTime(lastSync),

@@ -1,0 +1,45 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Fri, 14 Jul 2023 12:53:38 +0700
+Subject: Add more details to test failure message
+
+On armel, this test failed with a puzzling error message:
+
+    === RUN   TestRefreshNodeList
+    2023/07/14 03:29:41 Cluster starting...
+    2023/07/14 03:29:41 <- Node meh-4242 left the cluster
+        cluster_test.go:104: Node meh-4242 should have left
+    2023/07/14 03:29:41 Cluster stopped
+    --- FAIL: TestRefreshNodeList (0.00s)
+
+At first I thought about a flaky test (time-related), but looking at the
+code, I'm at a loss, the two log messages contradict each other...
+
+Plus, I can't reproduce it on a porter box (abel.debian.org).
+
+Let's try to add a bit more details to the logs, and do another upload.
+
+Forwarded: not-needed
+---
+ daemon/cluster_test.go | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/daemon/cluster_test.go b/daemon/cluster_test.go
+index be6b5d1..37dcc6b 100644
+--- a/daemon/cluster_test.go
++++ b/daemon/cluster_test.go
+@@ -101,13 +101,13 @@ func TestRefreshNodeList(t *testing.T) {
+ 	c.refreshNodeList("test-4242", "test-4242")
+ 
+ 	if len(c.nodes) != 1 {
+-		t.Fatalf("Node meh-4242 should have left")
++		t.Fatalf("Node meh-4242 should have left (%d != 1)", len(c.nodes))
+ 	}
+ 
+ 	c.refreshNodeList("meh-4242", "test-4242")
+ 
+ 	if len(c.nodes) != 2 {
+-		t.Fatalf("Node meh-4242 should have joined")
++		t.Fatalf("Node meh-4242 should have joined (%d != 2)", len(c.nodes))
+ 	}
+ }
+ 

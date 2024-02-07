@@ -1,0 +1,62 @@
+#!/bin/bash
+
+set -eu
+
+cleanup() {
+    if systemctl is-active --quiet mirrorbits; then
+        systemctl stop mirrorbits
+    fi
+
+    journalctl -u mirrorbits | tail -n 100
+
+    if [ -e /var/log/mirrorbits/daemon.log ]; then
+        tail -n 100 /var/log/mirrorbits/daemon.log
+    fi
+
+    rm -fr /var/log/mirrorbits
+    rm -f  /etc/mirrorbits/mirrorbits.conf
+
+    if [ "$DATADIR" ]; then
+        rm -fr "$DATADIR"
+    fi
+}
+
+trap cleanup EXIT
+
+# Prepare directories --- Note that we run mirrorbits via a
+# systemd service, with various hardening settings enabled.
+# Thus the mirrorbits daemon has limited access to the root
+# filesystem, in particular /tmp is not available. For this
+# reason we don't use AUTOPKGTEST_TMP.
+DATADIR=$(mktemp -d /srv/mirrorbits-XXXXXX)
+chmod 0755 $DATADIR
+mkdir $DATADIR/repo
+
+# Prepare mirrorbits config --- Either we have access to the
+# GeoIP databases, either we define fallbacks in the config.
+# We go for the later for simplicity.
+cat <<EOF >/etc/mirrorbits/mirrorbits.conf
+Repository: $DATADIR/repo
+Fallbacks:
+    - URL: http://foobar.example.org
+EOF
+
+# Disabled --- Use GeoIP test databases.
+if false; then
+    gitrepo=https://github.com/maxmind/MaxMind-DB
+    path=raw/main/test-data
+    for db in ASN City; do
+        wget $gitrepo/$path/GeoLite2-$db-Test.mmdb \
+            -O $DATADIR/GeoLite2-$db.mmdb
+    done
+    echo "GeoipDatabasePath: $DATADIR" >> \
+        /etc/mirrorbits/mirrorbits.conf
+fi
+
+# Start the mirrorbits daemon
+systemctl start mirrorbits
+
+# Run some basic commands
+mirrorbits version
+mirrorbits refresh
+mirrorbits list

@@ -1,0 +1,48 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Wed, 14 Jun 2023 15:24:05 +0700
+Subject: Adjust mirrorbits.conf for Debian
+
+- Default templates path
+- Default GeoIP database location
+
+Forwarded: not-needed, Debian-specific
+---
+ config/config.go | 2 +-
+ mirrorbits.conf  | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/config/config.go b/config/config.go
+index aa87789..283e720 100644
+--- a/config/config.go
++++ b/config/config.go
+@@ -42,7 +42,7 @@ func defaultConfig() Configuration {
+ 		RedisDB:                0,
+ 		LogDir:                 "",
+ 		TraceFileLocation:      "",
+-		GeoipDatabasePath:      "/usr/share/GeoIP/",
++		GeoipDatabasePath:      "/var/lib/GeoIP/",
+ 		ConcurrentSync:         5,
+ 		ScanInterval:           30,
+ 		CheckInterval:          1,
+diff --git a/mirrorbits.conf b/mirrorbits.conf
+index e373ebd..1d223f4 100644
+--- a/mirrorbits.conf
++++ b/mirrorbits.conf
+@@ -8,7 +8,7 @@
+ # Repository: /srv/repo
+ 
+ ## Path to the templates (default autodetect)
+-# Templates: /usr/share/mirrorbits/
++# Templates: /usr/share/mirrorbits/templates/
+ 
+ ## A local path or URL containing the JavaScript used by the templates.
+ ## If this is not set (the default), the JavaScript will just be loaded
+@@ -19,7 +19,7 @@
+ # LogDir: /var/log/mirrorbits
+ 
+ ## Path to the GeoIP2 mmdb databases
+-# GeoipDatabasePath: /usr/share/GeoIP/
++# GeoipDatabasePath: /var/lib/GeoIP/
+ 
+ ## OutputMode can take on the three values:
+ ##  - redirect: HTTP redirect to the destination file on the selected mirror

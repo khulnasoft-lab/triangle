@@ -1,0 +1,52 @@
+From: Arnaud Rebillout <arnaudr@kali.org>
+Date: Thu, 19 Oct 2023 11:03:13 +0700
+Subject: Dual: rpc: Pick the right URL to geolocate a mirror
+
+We pick a non-empty URL, favoring the HTTP URL if both are set, in order
+to get the host name and then geolocate the mirror.
+
+It makes the assumption that both HTTP and HTTPS URLs point to the same
+host, which was addressed in previous commits (we check that in the add
+and edit commands).
+---
+ rpc/rpc.go | 18 ++++++++++++++----
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/rpc/rpc.go b/rpc/rpc.go
+index d6dc588..5c335e7 100644
+--- a/rpc/rpc.go
++++ b/rpc/rpc.go
+@@ -256,9 +256,14 @@ func (c *CLI) GeoUpdateMirror(ctx context.Context, in *MirrorIDRequest) (*GeoUpd
+ 		return nil, err
+ 	}
+ 
+-	u, err := url.Parse(mirror.HttpURL)
++	var u *url.URL
++	if mirror.HttpURL != "" {
++		u, err = url.Parse(mirror.HttpURL)
++	} else {
++		u, err = url.Parse(mirror.HttpsURL)
++	}
+ 	if err != nil {
+-		return nil, errors.Wrap(err, "can't parse http url")
++		return nil, errors.Wrap(err, "can't parse url")
+ 	}
+ 
+ 	reply := &GeoUpdateMirrorReply{}
+@@ -319,9 +324,14 @@ func (c *CLI) AddMirror(ctx context.Context, in *Mirror) (*AddMirrorReply, error
+ 		return nil, status.Error(codes.FailedPrecondition, "unexpected ID")
+ 	}
+ 
+-	u, err := url.Parse(mirror.HttpURL)
++	var u *url.URL
++	if mirror.HttpURL != "" {
++		u, err = url.Parse(mirror.HttpURL)
++	} else {
++		u, err = url.Parse(mirror.HttpsURL)
++	}
+ 	if err != nil {
+-		return nil, errors.Wrap(err, "can't parse http url")
++		return nil, errors.Wrap(err, "can't parse url")
+ 	}
+ 
+ 	reply := &AddMirrorReply{}
