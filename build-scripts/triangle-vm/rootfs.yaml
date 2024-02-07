@@ -1,0 +1,99 @@
+{{- $arch := .arch }}
+{{- $branch := .branch }}
+{{- $mirror := .mirror }}
+
+{{- $desktop := .desktop }}
+{{- $locale := .locale }}
+{{- $password := .password }}
+{{- $packages := .packages }}
+{{- $timezone := .timezone }}
+{{- $toolset := .toolset }}
+{{- $username := .username }}
+
+{{- $hostname := or .hostname "kali" }}
+
+architecture: {{ $arch }}
+
+actions:
+  - action: debootstrap
+    mirror: {{ $mirror }}
+    suite: {{ $branch }}
+    components: [ main, contrib, non-free, non-free-firmware ]
+    keyring-file: kali-archive-keyring.gpg
+
+  - description: "Install usr-is-merged (cf. debos #361 and #362)"
+    action: apt
+    packages: [ usr-is-merged ]
+
+  - description: "Preseed package configuration"
+    action: run
+    chroot: true
+    script: scripts/preseed.sh
+
+  - description: "Install standard packages"
+    action: run
+    chroot: true
+    script: scripts/install-standard-packages.sh
+
+  - description: "Set default locale {{ $locale }}"
+    action: run
+    chroot: true
+    script: scripts/setup-locale.sh {{ $locale }}
+
+  - description: "Set default timezone {{ $timezone }}"
+    action: run
+    chroot: true
+    script: scripts/setup-timezone.sh {{ $timezone }}
+
+  - description: "Set hostname to {{ $hostname }}"
+    action: run
+    chroot: false
+    command: echo {{ $hostname }} > $ROOTDIR/etc/hostname
+
+  - description: "Install core and desktop selection: {{ $desktop }}"
+    action: apt
+    recommends: true
+    packages:
+      - kali-linux-core
+      - kali-linux-firmware
+{{ if ne $desktop "none" }}
+      - kali-desktop-{{ $desktop }}
+{{ end }}
+
+{{ if ne $toolset "none" }}
+  - description: "Install tool selection: {{ $toolset }}"
+    action: apt
+    recommends: true
+    packages:
+      - kali-linux-{{ $toolset }}
+{{ end }}
+
+{{ if ne $packages "" }}
+  - description: "Install extra packages: {{ $packages }}"
+    action: apt
+    recommends: true
+    packages: [ {{ $packages }} ]
+{{ end }}
+
+  - action: overlay
+    source: overlays/loopback-interface
+
+  - description: "Create user {{ $username }}"
+    action: run
+    chroot: true
+    script: scripts/create-user.sh {{ $username }} "{{ $password }}"
+
+  - description: "Finish installation"
+    action: run
+    chroot: true
+    script: scripts/finish-install.sh debconf etc-hosts usergroups zsh
+
+  - description: "Final cleanup (from within)"
+    action: run
+    chroot: true
+    script: scripts/cleanup-in.sh
+
+  - description: "Final cleanup (from outside)"
+    action: run
+    chroot: false
+    script: scripts/cleanup-out.sh

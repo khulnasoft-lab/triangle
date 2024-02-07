@@ -1,0 +1,65 @@
+{{- $arch := .arch }}
+{{- $branch := .branch }}
+{{- $format := .format }}
+{{- $imagename := .imagename }}
+{{- $imagesize := .imagesize }}
+{{- $keep := .keep }}
+{{- $mirror := .mirror }}
+{{- $rootfs := .rootfs }}
+{{- $uefi := .uefi }}
+{{- $variant := .variant }}
+{{- $zip := .zip }}
+
+{{- $desktop := .desktop }}
+{{- $locale := .locale }}
+{{- $password := .password }}
+{{- $packages := .packages }}
+{{- $timezone := .timezone }}
+{{- $toolset := .toolset }}
+{{- $username := .username }}
+
+architecture: {{ $arch }}
+
+actions:
+{{ if and $rootfs $imagename }}
+  - description: "Unpack {{ $rootfs }}.tar.gz"
+    action: unpack
+    file: {{ $rootfs }}.tar.gz
+{{ else }}
+  - action: recipe
+    recipe: rootfs.yaml
+    variables:
+      arch: {{ $arch }}
+      branch: {{ $branch }}
+      mirror: {{ $mirror }}
+      desktop: {{ $desktop }}
+      locale: {{ $locale }}
+      password: {{ $password }}
+      packages: {{ $packages }}
+      timezone: {{ $timezone }}
+      toolset: {{ $toolset }}
+      username: {{ $username }}
+{{ end }}
+
+{{ if $imagename }}
+  - action: recipe
+    recipe: image.yaml
+    variables:
+      arch: {{ $arch }}
+      format: {{ $format }}
+      imagename: {{ $imagename }}
+      imagesize: {{ $imagesize }}
+      keep: {{ $keep }}
+      uefi: {{ $uefi }}
+      variant: {{ $variant }}
+      zip: {{ $zip }}
+{{ else }}
+  - description: "Pack {{ $rootfs }}.tar.gz"
+    action: pack
+    file: {{ $rootfs }}.tar.gz
+
+  - description: "List build artifacts"
+    action: run
+    postprocess: true
+    command: echo {{ $rootfs }}.tar.gz > $ARTIFACTDIR/.artifacts
+{{ end }}

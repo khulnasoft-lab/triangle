@@ -1,0 +1,126 @@
+{{- $arch := .arch }}
+{{- $format := .format }}
+{{- $imagename := .imagename }}
+{{- $imagesize := .imagesize }}
+{{- $keep := .keep }}
+{{- $uefi := .uefi }}
+{{- $variant := .variant }}
+{{- $zip := .zip }}
+
+architecture: {{ $arch }}
+
+actions:
+  - description: "Setup the disk image"
+    action: image-partition
+    imagename: {{ $imagename }}.raw
+    imagesize: {{ $imagesize }}
+{{ if $uefi }}
+    partitiontype: gpt
+    partitions:
+      - name: esp
+        fs: fat32
+        start: 0%
+        end: 512M
+        flags: [ boot, esp ]
+      - name: root
+        fs: ext4
+        start: 512M
+        end: 100%
+    mountpoints:
+      - mountpoint: /
+        partition: root
+        options: [ errors=remount-ro ]
+      - mountpoint: /boot/efi
+        partition: esp
+{{ else }}
+    partitiontype: msdos
+    partitions:
+      - name: root
+        fs: ext4
+        start: 2048s
+        end: 100%
+        flags: [ boot ]
+    mountpoints:
+      - mountpoint: /
+        partition: root
+        options: [ errors=remount-ro ]
+{{ end }}
+
+  - action: filesystem-deploy
+    setup-kernel-cmdline: false
+
+  - description: "Create a swap file"
+    action: run
+    chroot: true
+    script: scripts/create-swapfile.sh
+
+  - description: "Install the kernel & bootloader"
+    action: apt
+    recommends: true
+    packages:
+{{ if $uefi }}
+      - grub-efi
+{{ else }}
+      - grub-pc
+{{ end }}
+      - linux-image-generic
+
+  - description: "Setup GRUB"
+    action: run
+    chroot: true
+{{ if $uefi }}
+{{ if eq $arch "amd64" }}
+    command: grub-install --force-extra-removable --no-nvram --target=x86_64-efi && update-grub
+{{ else }}
+    command: grub-install --force-extra-removable --no-nvram --target={{ $arch }}-efi && update-grub
+{{ end }}
+{{ else }}
+    command: grub-install "$IMAGE" && update-grub
+{{ end }}
+
+  - action: overlay
+    source: overlays/grub-install-devices
+
+  - description: "Install virtualization support for {{ $variant }}"
+    action: run
+    chroot: true
+    script: scripts/install-virt-support.sh {{ $variant }}
+
+{{ if or (eq $variant "vmware") (eq $variant "hyperv") }}
+  - description: "Finish install for {{ $variant }}"
+    action: run
+    chroot: true
+    script: scripts/finish-install-{{ $variant }}.sh
+{{ end }}
+
+  - description: "Configure apt sources.list"
+    action: run
+    chroot: true
+    script: scripts/finish-install.sh apt-sources debconf usergroups
+
+  - description: "Final cleanup (from within)"
+    action: run
+    chroot: true
+    script: scripts/cleanup-in.sh
+
+  - description: "Final cleanup (from outside)"
+    action: run
+    chroot: false
+    script: scripts/cleanup-out.sh
+
+{{ if eq $zip "true" }}
+  - description: "Fill unallocated blocks with zeroes"
+    action: run
+    chroot: false
+{{ if $uefi }}
+    script: scripts/zerofree.sh $IMAGE-part2
+{{ else }}
+    script: scripts/zerofree.sh $IMAGE-part1
+{{ end }}
+{{ end }}
+
+  - description: "Export to a {{ $format }} image"
+    label: "export-{{ $format }}"
+    action: run
+    postprocess: true
+    script: scripts/export-{{ $format }}.sh {{ if eq $keep "true" }}-k{{ end }} {{ if eq $zip "true" }}-z{{ end }} {{ $imagename }}

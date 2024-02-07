@@ -1,0 +1,25 @@
+Kali Rolling (%version%) %platform%
+%date%
+
+- - - - - - - - - - - - - - - - - -
+
+Username: kali
+Password: kali
+(%kbdlayout%)
+
+- - - - - - - - - - - - - - - - - -
+
+* Kali Homepage:
+https://www.kali.org/
+
+* Kali Documentation:
+https://www.kali.org/docs/
+
+* Kali Tools:
+https://www.kali.org/tools/
+
+* Forum/Community Support:
+https://forums.kali.org/
+
+* Community Chat:
+https://discord.kali.org
