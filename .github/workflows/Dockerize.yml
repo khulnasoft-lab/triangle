@@ -3,6 +3,11 @@ name: Dockerize Tools
 on:
   push:
     branches: [ master ]
+env:
+  # Use docker.io for Docker Hub if empty
+  REGISTRY: ghcr.io
+  # github.repository as <account>/<repo>
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
@@ -49,10 +54,16 @@ jobs:
       # Push images to registry (optional)
       - name: Push images to registry (optional)
         run: |
+          uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+          with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
           echo "Pushing images to registry (replace example commands with your registry)"
-          # Replace 'your_registry' with your registry login and tag each image
-          # for dir in $DIRS; do
-          #   docker login your_registry
-          #   docker tag "$dir" your_registry/$dir:latest
-          #   docker push your_registry/$dir:latest
-          # done
+          Replace 'khulnasoft-lab' with your registry login and tag each image
+          for dir in $DIRS; do
+            docker login ${{ env.REGISTRY }}/${{ github.actor }}
+            docker tag "$dir" ${{ github.actor }}/$dir:latest
+            docker push ${{ github.actor }}/$dir:latest
+          done
