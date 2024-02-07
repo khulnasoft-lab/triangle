@@ -1,0 +1,406 @@
+## id:
+##   name: Official Name of the project
+##   prod: Whether the instance is in production
+##   distro: Use to override detection by script, among: full, partial
+##   homepage: URL to the homepage of the project
+##   download: URL to the download page of the project (ideally it has links to the mirrorbits instance)
+##   mirrorlist: URL to mirrorbits' mirrorlist page (ideally a stable URL)
+##   mirrorstats: URL to mirrorbits' mirrorstats page (ideally a stable URL)
+##   rsync:
+##     - rsync url 1
+##     - rsync url 2
+##     - and so on
+##   since:    (optional)
+##     date: since when the instance is in production (ISO-8601 date)
+##     url: the URL where it was announced
+##     title: the title of the page (optional)
+##   links:    (optional)
+##     - url: the URL of the page (mandatory)
+##       type: a keyword that tells what kind of page is that (mandatory)
+##       date: a ISO-8601 date (optional)
+##       title: the title of the page (optional)
+##
+## Link types: article, code, documentation, mirror-credits, status-page
+
+carbonrom:
+  name: CarbonROM
+  prod: true
+  homepage: https://carbonrom.org/
+  download: https://get.carbonrom.org/
+  mirrorlist: https://mirrorbits.carbonrom.org/angler/CARBON-CR-7.0-OPAL-RELEASE-angler-20210830-1728.zip?mirrorlist
+  mirrorstats: https://mirrorbits.carbonrom.org/?mirrorstats
+  rsync: []
+  since:
+    date: 2017-06-30
+    url: https://github.com/etix/mirrorbits/pull/58
+  links:
+    - url: https://status.carbonrom.org/
+      type: status-page
+  comments:
+    - only two mirrors owned by carbonrom, no public rsync
+
+ccc:
+  name: Chaos Computer Club
+  prod: true
+  homepage: https://media.ccc.de/
+  download: https://cdn.media.ccc.de/
+  mirrorlist: https://cdn.media.ccc.de/NEW?mirrorlist
+  mirrorstats: https://cdn.media.ccc.de/NEW?mirrorstats
+  rsync:
+    - rsync://mirrors.dotsrc.org/cdn.media.ccc.de/
+    - rsync://mirror.eu.oneandone.net/ccc/
+  since:
+    date: 2017-01-06
+    url: https://github.com/etix/mirrorbits/issues/47
+  links:
+    - url: https://media.ccc.de/about.html
+      type: documentation
+
+efa:
+  Name: eFa
+  prod: true
+  homepage: https://efa-project.org/
+  download: https://efa-project.org/download/
+  mirrorlist: https://mirrors.efa-project.org/?mirrorlist
+  mirrorstats: https://mirrors.efa-project.org/?mirrorstats
+  rsync: []
+  comments:
+    - only two mirrors owned by eFa, no public rsync, or documentation/notes about using mirrorbits
+
+endless:
+  name: Endless OS
+  prod: true
+  homepage: https://www.endlessos.org/
+  download: https://www.endlessos.org/os-direct-download
+  mirrorlist: https://images-dl.endlessm.com/release/lastupdate?mirrorlist
+  mirrorstats: https://images-dl.endlessm.com/release/?mirrorstats
+  rsync:
+    - rsync://mirrors.dotsrc.org/endless-iso/
+    - rsync://ftp.acc.umu.se/mirror/endlessos.com/
+  links:
+    - url: https://support.endlessos.org/en/dev/mirroring
+      type: documentation
+
+freifunk:
+  Name: Freifunk
+  prod: true
+  homepage: https://freifunk.net/
+  download: https://media.freifunk.net/
+  mirrorlist: https://cdn.media.freifunk.net/mirrorbits/?mirrorlist
+  mirrorstats: https://cdn.media.freifunk.net/mirrorbits/?mirrorstats
+  rsync:
+    - rsync://cdn.media.freifunk.net/repo/
+    - rsync://cdnmaster.media.freifunk.net/repo/
+  comments:
+    - only one mirror owned by freifunk, used for media streaming
+
+gimp:
+  name: GIMP
+  prod: true
+  homepage: https://www.gimp.org/
+  download: https://www.gimp.org/downloads/
+  mirrorlist: https://download.gimp.org/pub/gimp/README?mirrorlist
+  mirrorstats: https://download.gimp.org/pub/gimp/README?mirrorstats
+  rsync:
+    - rsync://mirrors.dotsrc.org/gimp/
+    - rsync://ftp.acc.umu.se/gimp/
+  since:
+    date: 2022-08-26
+    url: https://www.gimp.org/news/2021/10/06/official-mirror-policy/
+    title: GIMP’s official mirrors and mirror policy
+  links:
+    - url: https://gitlab.gnome.org/Infrastructure/openshift-images/mirrorbits-gimp
+      type: code
+    - url: https://www.gimp.org/donating/sponsors.html
+      type: mirror-credits
+
+gnome:
+  name: GNOME
+  prod: true
+  homepage: https://www.gnome.org/
+  download: https://www.gnome.org/getting-gnome/
+  mirrorlist: https://download.gnome.org/README?mirrorlist
+  mirrorstats: https://download.gnome.org/README?mirrorstats
+  rsync:
+    - rsync://ftp-nyc.osuosl.org/gnome/
+    - rsync://mirrors.dotsrc.org/gnome/
+  since:
+    date: 2020-04-17
+    url: https://gitlab.gnome.org/Infrastructure/Infrastructure/-/issues/290#note_981352
+  links:
+    - url: https://gitlab.gnome.org/Infrastructure/openshift-images/mirrorbits/-/commits/main
+      type: code
+
+jellyfin:
+  name: Jellyfin
+  prod: true
+  homepage: https://jellyfin.org/
+  download: https://jellyfin.org/downloads/server/
+  mirrorlits: https://repo.jellyfin.org/debian/jellyfin_team.gpg.key/mirrorlist
+  mirrorstats: https://repo.jellyfin.org/mirrorstats
+  rsync:
+    - rsync://ams1.mirror.jellyfin.org/mirror/
+    - rsync://nyc1.mirror.jellyfin.org/mirror/
+  since:
+    date: 2021-04-12
+    url: https://jellyfin.org/posts/mirrorbits-cdn/
+    title: The Jellyfin CDN - Mirrorbits for the masses
+  comments:
+    - https://repo.jellyfin.org/releases/plugin/manifest-stable.json?mirrorlist gives mirrorlist
+    - https://repo.jellyfin.org/debian/jellyfin_team.gpg.key?mirrorlist doesn't, needs /mirrorlist
+
+jenkins:
+  name: Jenkins
+  prod: true
+  homepage: https://www.jenkins.io/
+  download: https://www.jenkins.io/download/
+  mirrorlist: https://get.jenkins.io/war/2.428/jenkins.war?mirrorlist
+  mirrorstats: https://get.jenkins.io/war/2.428/jenkins.war?mirrorstats
+  rsync:
+    - rsync://ftp-nyc.osuosl.org/jenkins/
+    - rsync://ftp.belnet.be/jenkins/
+  since:
+    date: 2022-01-16
+    url: https://github.com/etix/mirrorbits/pull/117
+
+kde-download:
+  name: KDE Download
+  prod: true
+  homepage: https://kde.org/
+  download: https://neon.kde.org/download
+  mirrorlist: https://download.kde.org/README?mirrorlist
+  mirrorstats: https://download.kde.org/?mirrorstats
+  rsync:
+    - rsync://mirrors.dotsrc.org/kde/
+    - rsync://ftp.acc.umu.se/mirror/kde.org/ftp/
+  since:
+    date: 2020-10-31
+    url: https://mail.kde.org/pipermail/kde-community/2020q4/006639.html
+    title: Transition to new mirror infrastructure
+  links:
+    - url: https://kde.org/mirrors/ftp_howto/
+      type: documentation
+
+kde-files:
+  name: KDE Files
+  prod: true
+  homepage: https://kde.org/
+  download: https://neon.kde.org/download
+  mirrorlist: https://files.kde.org/last-updated?mirrorlist
+  mirrorstats: https://files.kde.org/?mirrorstats
+  rsync:
+    - rsync://mirrors.dotsrc.org/kde-applicationdata/
+    - rsync://ftp.acc.umu.se/mirror/kde.org/files/
+  since:
+    date: 2020-10-31
+    url: https://mail.kde.org/pipermail/kde-community/2020q4/006639.html
+    title: Transition to new mirror infrastructure
+  links:
+    - url: https://kde.org/mirrors/ftp_howto/
+      type: documentation
+
+kodi:
+  name: Kodi
+  prod: true
+  homepage: https://kodi.tv/
+  download: https://kodi.tv/download/
+  mirrorlist: http://mirrors.kodi.tv/timestamp.txt?mirrorlist
+  mirrorstats: http://mirrors.kodi.tv/timestamp.txt?mirrorstats
+  rsync:
+    - rsync://ftp.osuosl.org/xbmc/
+    - rsync://mirrors.dotsrc.org/kodi/
+  since:
+    date: 2015-07-31
+    url: https://forum.kodi.tv/showthread.php?tid=233824
+  links:
+    - url: https://kodi.wiki/view/Mirrors
+      type: documentation
+
+libreelec:
+  Name: LibreELEC
+  prod: true
+  homepage: https://libreelec.tv/
+  download: https://libreelec.tv/downloads/
+  mirrorlist: https://releases.libreelec.tv/hypercon-LE.jar?mirrorlist # Alt: https://releases.libreelec.tv/LibreELEC-RPi4.arm-11.0.1.img.gz?mirrorlist
+  mirrorstats: https://releases.libreelec.tv/mirrorstats
+  rsync:
+    - rsync://releases.libreelec.tv/
+  since:
+    date: 2022-02-21
+    url: https://github.com/LibreELEC/documentation/commit/ec35c15f81b817f94096d48240f53901f7965308
+    title: "GitBook: [#79] mirrorbits changes"
+  links:
+    - url: https://wiki.libreelec.tv/project/mirrors
+      type: render documentation
+    - url: https://github.com/LibreELEC/documentation/commits/master/project/mirrors.md
+      type: markdown documentation
+
+lineageos:
+  name: LineageOS
+  prod: true
+  homepage: https://lineageos.org/
+  download: https://download.lineageos.org/
+  mirrorlist: https://mirrorbits.lineageos.org/TIMESTAMP?mirrorlist
+  mirrorstats: https://mirrorbits.lineageos.org/?mirrorstats
+  rsync:
+    - rsync://mirrors.dotsrc.org/lineageos/
+    - rsync://ftp.acc.umu.se/mirror/lineageos/
+  since:
+    date: 2017-01-26
+    url: https://github.com/etix/mirrorbits/issues/48
+  links:
+    - url: https://status.lineageos.org/components/59efbb0b9944fe256c6a5448/
+      type: status-page
+    - url: https://github.com/lineageos-infra/mirrorbits-api/
+      type: code
+    - url: https://github.com/LineageOS/ansible/
+      type: code
+
+mariadb:
+  name: MariaDB
+  prod: true
+  distro: partial
+  homepage: https://mariadb.org/
+  download: https://mariadb.org/download/
+  mirrorlist: https://mirror.mariadb.org/repo/10.6/debian/sha256sums.txt?mirrorlist
+  mirrorstats: https://mirror.mariadb.org/mirrorstats
+  rsync:
+    - rsync://ftp.osuosl.org/mariadb/
+    - rsync://mirrors.dotsrc.org/mariadb/
+  since:
+    date: 2022-07-12
+    url: https://mariadb.org/mirrorbits/
+    title: A mirror manager system to simplify the distribution of MariaDB binaries and packages
+  comments:
+    - mariadb uses mirmon, mirrorbits is only an alternative at this point (Oct 2023)
+
+msys2:
+  name: MSYS2
+  prod: true
+  homepage: https://www.msys2.org/
+  download: https://packages.msys2.org/
+  mirrorlist: https://mirror.msys2.org/lastsync?mirrorlist
+  mirrorstats: https://mirror.msys2.org/?mirrorstats
+  rsync:
+    - rsync://ftp.osuosl.org/msys2/
+    - rsync://mirrors.dotsrc.org/msys2/
+  since:
+    date: 2021-06-17
+    url: https://github.com/msys2/msys2-main-server/issues/3#issuecomment-862667563
+  links:
+    - url: https://www.msys2.org/dev/mirrors/
+      type: documentation
+
+openmandriva:
+  name: OpenMandriva
+  prod: false
+  homepage: https://www.openmandriva.org/
+  download: https://www.openmandriva.org/downloads
+  mirrorlist: https://mirror.openmandriva.org/README.txt?mirrorlist
+  mirrorstats: https://mirror.openmandriva.org/?mirrorstats
+  rsync:
+    - rsync://mirror.yandex.ru/openmandriva/
+    - rsync://distro.ibiblio.org/openmandriva/
+  since:
+    date: 2022-12-23
+    url: https://forum.openmandriva.org/t/reannouncing-openmandriva-deploying-mirrorbits/4724
+  links:
+    - url: https://wiki.openmandriva.org/en/team/infra/mirroring
+      type: documentation
+    - url: https://github.com/OpenMandrivaSoftware/mirrorbits/
+      type: code
+  comments:
+    - their download page doesn't seem to point to mirrorbits
+    - their mirroring wiki marks mirrorbits as down
+
+osmc:
+  name: OSMC
+  prod: false
+  homepage: https://osmc.tv/
+  download: https://osmc.tv/download/
+#  mirrorlist: ???
+  mirrorstats: https://download.osmc.tv/?mirrorstats
+  rsync:
+    - rsync://ftp.osuosl.org/osmc/
+    - rsync://mirrors.dotsrc.org/osmc/
+  since:
+    date: 2016-01-22
+    url:  https://osmc.tv/2016/01/faster-downloads-and-updates/
+    title: Faster downloads and updates
+  comments:
+    - their download page doesn't seem to point to mirrorbits
+    - seems like the instance is not functional?
+
+tails:
+  name: Tails
+  prod: true
+  homepage: https://tails.net/
+  download: https://tails.net/install/index.en.html
+  mirrorlist: https://download.tails.net/tails/project/trace?mirrorlist
+  mirrorstats: https://download.tails.net/tails/?mirrorstats
+  rsync:
+    - rsync://ftp.acc.umu.se/mirror/tails/
+    - rsync://mirrors.dotsrc.org/tails/
+  since:
+    date: 2022-08-04
+    url: https://gitlab.tails.boum.org/tails/tails/-/issues/18263#note_192971
+  links:
+    - url: https://tails.net/contribute/design/mirrors/
+      type: documentation
+
+termux:
+  name: Termux
+  prod: false
+  homepage: https://termux.dev/
+  download: https://packages.termux.dev/
+  mirrorlist: https://mirror.termux.dev/termux-main/lastsync?mirrorlist
+  mirrorstats: https://mirror.termux.dev/?mirrorstats
+  rsync:
+    - rsync://mirror.accum.se/mirror/termux.dev/
+    - rsync:///mirror.surf/termux/
+  since:
+    date: 2022-11-23
+    url: https://github.com/termux/termux-tools/releases/tag/v1.32.0
+  links:
+    - url: https://github.com/termux/termux-packages/wiki/Mirrors
+      type: documentation
+  comments:
+    - not sure the instance is really used in production
+
+vlc:
+  name: VLC
+  prod: true
+  homepage: https://www.videolan.org/
+  download: https://www.videolan.org/vlc/#download
+  mirrorlist: https://get.videolan.org/vlc/3.0.19/vlc-3.0.19.tar.xz?mirrorlist
+  mirrorstats: https://get.videolan.org/?mirrorstats
+  rsync:
+    - rsync://ftp.osuosl.org/videolan/
+    - rsync://mirrors.dotsrc.org/vlc/
+  since:
+    date: 2014-04-01
+    url: https://blog.l0cal.com/2014/07/11/mirrorbits-is-now-on-github/
+    title: Mirrorbits is now on github!
+  links:
+    - url: https://www.videolan.org/videolan/mirrors.html
+      type: mirror-credits
+    - url: https://wiki.videolan.org/Mirrors/
+      type: documentation
+
+xcpng:
+  name: XCP-ng
+  prod: true
+  homepage: https://xcp-ng.org/
+  download: https://xcp-ng.org/#easy-to-install
+  mirrorlist: https://mirrors.xcp-ng.org/README.txt?mirrorlist
+  mirrorstats: http://mirrors.xcp-ng.org/?mirrorstats
+  rsync:
+    - rsync://distro.ibiblio.org/xcp-ng/
+    - rsync://mirror.team-cymru.org/xcp-ng/
+  since:
+    date: 2019-04-25
+    url: https://xcp-ng.org/forum/topic/1250/xcp-ng-mirrors
+    title: XCP-ng mirrors
+  links:
+    - url: https://xcp-ng.org/docs/mirrors.html
+      type: documentation

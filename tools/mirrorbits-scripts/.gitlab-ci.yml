@@ -1,0 +1,55 @@
+#
+## REF: (Project) https://gitlab.com/kalilinux/tools/mirrorbits-scripts/-/pipeline_schedules
+#
+
+## CI/CD -> Schedules -> New Schedule
+##   - Description: Monthly (instances-in-the-wild)
+##   - Interval Pattern: Custom -> 0 0 L * *
+##   - Cron Timezone: [UTC 0] UTC
+##   - Target branch or tag: main
+##   - Activated: Enable
+
+image: "debian:12-slim"
+
+variables:
+  ## Create a shallow git copy
+  GIT_DEPTH: 1
+
+check-availability:
+  variables:
+    MIRROR: http://http.kali.org/README
+    MIRROR_TIMEOUT: 5m
+  before_script:
+    - apt update
+    - apt-get --yes --no-install-recommends install python3-minimal python3-simplejson   gnuplot   jq wget   ca-certificates
+    - export MIRROR_DATA=$(basename ${MIRROR})
+  script:
+    - cd ./check-availability/
+    - timeout --preserve-status ${MIRROR_TIMEOUT} ./query-every-minute.sh ./data-out/ ${MIRROR} || true
+    - ./analyze-json.py ./data-out/${MIRROR_DATA}/ | tee ./data-out/${MIRROR_DATA}.dat
+    - ./plot.sh ./data-out/${MIRROR_DATA}.dat
+  #after_script:
+  #  - rm -vrf ./check-availability/data-out/
+  artifacts:
+    paths:
+      - ./check-availability/*.png
+  rules:
+    ## Do not run when scheduled
+    ##   As this script is more useful for debugging
+    - if: '$CI_PIPELINE_SOURCE != "schedule"'
+      when: always
+
+instances-in-the-wild:
+  before_script:
+    - apt update
+    - apt-get --yes --no-install-recommends install python3-minimal python3-yaml python3-bs4 python3-lxml ca-certificates rsync
+  script:
+    - cd ./instances-in-the-wild/
+    #- ./run.py ./mirrorbits.yaml
+    - ./run.py ./mirrorbits.yaml --rsync --outdir ./data-out/ | tee ./output.md
+    - ./rsync-overview.sh ./data-out/ | tee ./rsync-overview.md
+  #after_script:
+  #  - rm -vrf ./instances-in-the-wild/data-out/
+  artifacts:
+    paths:
+      - ./instances-in-the-wild/*.md
