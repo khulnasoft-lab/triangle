@@ -1,0 +1,26 @@
+Files: *
+License: GPL-2+
+Copyright: Members of the Debian Cloud Team including:
+Emmanuel Kasper manu at d.o
+
+Files: config_space/*
+Copyright: 1999-2014 Thomas Lange <lange@informatik.uni-koeln.de>
+License: GPL-2+
+Comment:
+    Other contributions copyright by
+    Thomas Gebhardt         <gebhardt@hrz.uni-marburg.de>
+    Henning Glawe           <glaweh@physik.fu-berlin.de>
+    Michael Goetze          <mgoetze@mgoetze.net>
+    Kerim Güney             <kerim@fai-[roject.org>
+    Jonas Hoffmann          <jhoffman@physik.fu-berlin.de>
+    Christian Kern          <kernch@in.tum.de>
+    Holger Levsen           <holger@layer-acht.org>
+    Darshaka Pathirana      <dpat@syn-net.org>
+    Michael Tautschnig      <mt@debian.org>
+    Ingo Wichmann           <iw@linuxhotel.de>
+    Martin Zobel-Helas      <zobel@debian.org>
+
+Members of the Debian Cloud Team contributing under the same license include:
+
+Sam Hartman <hartmans@debian.org>
+Emmanuel Kasper manu at d.o
