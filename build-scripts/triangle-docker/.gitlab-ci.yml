@@ -1,0 +1,160 @@
+variables:
+    # NB: Images will appear in this order on the Docker Hub, so keep everything
+    # sorted per order of importance here, both architectures and images.
+    BASE_IMAGES: "kali-rolling kali-last-release kali-dev"
+    EXTRA_IMAGES: "kali-bleeding-edge kali-experimental"
+    ARCHS: "amd64 arm64 armhf armel i386"
+
+stages:
+    - build-rootfs
+    - build
+    - test
+    - publish
+
+build-rootfs:
+    stage: build-rootfs
+    image: debian:testing
+    artifacts:
+        paths:
+            - "*.tar.gz"
+            - "*.release.version"
+    before_script:
+        - |
+          # Take a look at the surroundings
+          v() { echo "==== $ $@"; "$@"; }
+          echo "================================"
+          v uname -a
+          v cat /proc/cmdline
+          v sh -c "cut -d ' ' -f 1 /proc/modules | sort -u"
+          v ls -l --time-style=+ /dev
+          v cat /proc/mounts
+          [ -e /proc/config.gz ] && v zgrep BINFMT_MISC /proc/config.gz
+          [ -e /boot/config-$(uname -r) ] && v grep BINFMT_MISC /boot/config-$(uname -r)
+          echo "================================"
+        - |
+          # Remount /builds with the dev option if needed.
+          # Since GitLab migrated to Google Container-Optimized OS & Docker 19.03.15
+          # in August 2021, /builds is mounted with the option nodev, and it breaks
+          # debootstrap. References:
+          # * https://gitlab.com/kalilinux/build-scripts/kali-docker/-/issues/40
+          # * https://gitlab.com/gitlab-com/gl-infra/production/-/issues/5184
+          findmnt -no options -T . | grep -qw nodev && mount -vo remount,dev $(stat -c %m .) || true
+    script:
+        - |
+          # Install packages
+          apt-get update
+          apt-get install -y arch-test binfmt-support debootstrap qemu-user-static wget
+        - |
+          # Install Kali archive keyring
+          KEYRING_PKG_URL=$(wget -nv -O - \
+              https://http.kali.org/kali/dists/kali-rolling/main/binary-amd64/Packages.gz \
+              | gzip -dc | grep ^Filename: | grep kali-archive-keyring | head -n 1 | awk '{print $2}')
+          KEYRING_PKG_URL="https://http.kali.org/kali/$KEYRING_PKG_URL"
+          wget -nv "$KEYRING_PKG_URL"
+          dpkg -i kali-archive-keyring_*_all.deb
+          rm kali-archive-keyring_*_all.deb
+        - |
+          # Test architectures right away
+          echo "Arch test:"
+          for arch in $ARCHS; do
+              echo -n "* $arch: " && /usr/lib/arch-test/$arch
+          done
+        - |
+          # Build all the rootfs
+          for image in $BASE_IMAGES; do
+              for arch in $ARCHS; do
+                  echo "============================================================"
+                  echo "Building rootfs $image/$arch"
+                  echo "============================================================"
+                  ./build-rootfs.sh "$image" "$arch"
+              done
+          done
+
+build-docker-images:
+    stage: build
+    image: debian:testing
+    dependencies:
+        - build-rootfs
+    artifacts:
+        paths:
+            - "*.conf"
+    script:
+        - |
+          # Install packages
+          apt-get update
+          apt-get install -y binfmt-support ca-certificates iptables podman qemu-user-static
+        - |
+          # Switch to iptables legacy, as long as GitLab CI doesn't support nftables.
+          # Cf. https://gitlab.com/gitlab-com/gl-infra/production/-/issues/5184#note_637383773
+          update-alternatives --set iptables /usr/sbin/iptables-legacy
+        - |
+          # Build Docker images
+          echo "$CI_JOB_TOKEN" | podman login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+          for image in $BASE_IMAGES; do
+              for arch in $ARCHS; do
+                  echo "============================================================"
+                  echo "Building docker image $image/$arch"
+                  echo "============================================================"
+                  ./docker-build.sh "$image" "$arch"
+              done
+          done
+          for image in $EXTRA_IMAGES; do
+              for arch in $ARCHS; do
+                  echo "============================================================"
+                  echo "Building extra docker image $image/$arch"
+                  echo "============================================================"
+                  ./docker-build-extra.sh "$image" "$arch"
+              done
+          done
+
+test-docker-images:
+    stage: test
+    image: debian:testing
+    dependencies:
+        - build-docker-images
+    script:
+        - |
+          # Install packages
+          apt-get update
+          apt-get install -y binfmt-support ca-certificates iptables podman qemu-user-static
+        - |
+          # Switch to iptables legacy, as long as GitLab CI doesn't support nftables.
+          # Cf. https://gitlab.com/gitlab-com/gl-infra/production/-/issues/5184#note_637383773
+          update-alternatives --set iptables /usr/sbin/iptables-legacy
+        - |
+          # Test images
+          for image in $BASE_IMAGES $EXTRA_IMAGES; do
+              for arch in $ARCHS; do
+                  echo "============================================================"
+                  echo "Testing docker image $image/$arch"
+                  echo "============================================================"
+                  ./docker-test.sh "$image" "$arch"
+              done
+          done
+
+publish-docker-images:
+    stage: publish
+    image: debian:testing
+    dependencies:
+        - build-docker-images
+    script:
+        - |
+          # Install packages
+          apt-get update
+          apt-get install -y ca-certificates podman
+        - |
+          # Login to the registries
+          echo "$CI_JOB_TOKEN" | podman login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+          if [ -n "$DOCKER_HUB_ACCESS_TOKEN" ]; then
+              echo "$DOCKER_HUB_ACCESS_TOKEN" | podman login -u "$DOCKER_HUB_USER" --password-stdin docker.io
+          fi
+        - |
+          # Push images in reverse order, so that they appear in order in Docker Hub.
+          ARCHS=$(printf "%s\n" $ARCHS | tac | paste -s -d " ")
+          IMAGES=$(printf "%s\n" $BASE_IMAGES $EXTRA_IMAGES | tac | paste -s -d " ")
+          for image in $IMAGES; do
+              echo "============================================================"
+              echo "Publishing docker image $image ($ARCHS)"
+              echo "============================================================"
+              ./docker-publish.sh "$image" "$ARCHS"
+          done
