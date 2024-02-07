@@ -11,7 +11,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/rafaeljusto/redigomock v0.0.0-20190202135759-257e089e14a1
 	github.com/youtube/vitess v0.0.0-20181105031612-54855ec7b369
-	golang.org/x/net v0.9.0
+	golang.org/x/net v0.17.0
 	google.golang.org/grpc v1.56.3
 	gopkg.in/tylerb/graceful.v1 v1.2.15
 	gopkg.in/yaml.v3 v3.0.1
